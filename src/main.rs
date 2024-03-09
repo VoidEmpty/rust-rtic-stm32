@@ -41,6 +41,7 @@ mod app {
     };
 
     use nmea_protocol::{GpsData, Nmea};
+    use rpi_json::commands::*;
     use rpi_json::data_types::RegularData;
     use wit_protocol::WIT;
 
@@ -53,6 +54,9 @@ mod app {
     // Resources
     #[shared]
     struct Shared {
+        // TODO split to separate structures
+        stop_flag: bool,
+        send_delay: u32,
         reg_data: RegularData,
         read_buf_gps: VecDeque<u8>,
         read_buf_incl: VecDeque<u8>,
@@ -64,6 +68,7 @@ mod app {
 
     #[local]
     struct Local {
+        // TODO split to separate structures
         _motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
         _motor_dir: gpiob::PB6<Output<PushPull>>,
         drv_en: gpiod::PD11<Output<PushPull>>,
@@ -72,6 +77,7 @@ mod app {
         serial_gps: Serial<USART1>,
         serial_incl: Serial<USART2>,
         serial_rpi: Serial<USART3>,
+        bracket_balance: u8,
     }
 
     #[init]
@@ -181,11 +187,18 @@ mod app {
 
         let reg_data = RegularData::default();
 
-        update_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
+        // update_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
+
+        // rpi communication
+        let send_delay = 2000;
+        let bracket_balance = 0;
+        let stop_flag = false;
 
         (
             Shared {
                 // Initialization of shared resources go here
+                send_delay,
+                stop_flag,
                 reg_data,
                 read_buf_gps,
                 read_buf_incl,
@@ -202,6 +215,7 @@ mod app {
                 serial_gps,
                 serial_incl,
                 serial_rpi,
+                bracket_balance,
             },
         )
     }
@@ -336,9 +350,10 @@ mod app {
         });
     }
 
-    #[task(binds = USART3, local = [serial_rpi], shared = [read_buf_rpi, write_buf_rpi])]
+    #[task(binds = USART3, local = [serial_rpi, bracket_balance], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_delay])]
     fn usart3(mut ctx: usart3::Context) {
         defmt::trace!("USART3 interrupt");
+        let mut bracket_balance = *ctx.local.bracket_balance;
         let serial = ctx.local.serial_rpi;
 
         serial.unlisten(Event::Rxne);
@@ -358,28 +373,70 @@ mod app {
             });
             serial.unlisten(Event::Txe);
         }
+        let mut command: Option<Command> = None;
 
         if serial.is_rx_not_empty() {
             defmt::trace!("RX not empty");
+
             if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {=u8:a}", byte);
-                // TODO: add commands parsing
-                // ctx.shared.read_buf_rpi.lock(|read_buf| {
-                //     read_buf.push_back(byte);
-                // });
+                ctx.shared.read_buf_rpi.lock(|read_buf| {
+                    match byte {
+                        b'{' => bracket_balance += 1,
+                        b'}' => bracket_balance -= 1,
+                        _ => {}
+                    }
+                    read_buf.push_back(byte);
+
+                    if !read_buf.is_empty() && bracket_balance == 0 {
+                        let command_json: Vec<u8> = read_buf.drain(..).collect();
+                        command = Command::from_json(command_json.as_slice());
+                    }
+                });
             } else {
                 defmt::error!("RX failed to read");
             }
             serial.listen(Event::Txe);
         }
 
+        if let Some(command) = command {
+            match command.cmd {
+                // stop command
+                0 => ctx.shared.stop_flag.lock(|flag| *flag = true),
+                // start command
+                1 => ctx.shared.send_delay.lock(|delay| {
+                    if let Some(CommandData::Delay(new_delay)) = command.cmd_data {
+                        *delay = new_delay;
+                    } else {
+                        defmt::warn!("Recieved incorrect data for command 'start', expected delay");
+                    }
+                    update_regualar_data::spawn()
+                        .expect("Failed to spawn task send_regualar_data!");
+                }),
+                // TODO motor command
+                2 => todo!(),
+                _ => defmt::warn!("Received unknown command: {=u8}", command.cmd),
+            }
+        }
+
         serial.listen(Event::Rxne);
     }
 
-    #[task(shared = [write_buf_rpi, reg_data], priority = 1)]
+    #[task(shared = [write_buf_rpi, reg_data, send_delay, stop_flag], priority = 1)]
     async fn update_regualar_data(mut ctx: update_regualar_data::Context) {
         loop {
+            let mut stop_flag = false;
+            ctx.shared.stop_flag.lock(|flag| stop_flag = *flag);
+
+            if stop_flag {
+                return;
+            }
+
             let mut json_str = String::new();
+
+            // get delay
+            let mut send_delay = 0;
+            ctx.shared.send_delay.lock(|delay| send_delay = *delay);
 
             // convert to json
             defmt::trace!("JSON conversion started");
@@ -397,7 +454,7 @@ mod app {
             });
             defmt::trace!("Buff copy ended");
 
-            Systick::delay(2.secs()).await;
+            Systick::delay(send_delay.millis()).await;
         }
     }
 }
