@@ -25,8 +25,10 @@ mod tmc2160;
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2])]
 mod app {
+    use alloc::string::String;
     use alloc::vec::Vec;
-    use alloc::{collections::VecDeque, string::String};
+
+    use ringbuffer::{AllocRingBuffer, RingBuffer};
 
     use rtic_monotonics::systick::Systick;
 
@@ -60,13 +62,15 @@ mod app {
         stop_flag: bool,
         send_delay: u32,
         reg_data: RegularData,
-        read_buf_gps: VecDeque<u8>,
-        read_buf_incl: VecDeque<u8>,
-        read_buf_rpi: VecDeque<u8>,
+        read_buf_gps: AllocRingBuffer<u8>,
+        read_buf_incl: AllocRingBuffer<u8>,
+        read_buf_rpi: AllocRingBuffer<u8>,
     }
 
-    const PACKET_SIZE: usize = 11;
     const ENCODER_RES: usize = 360;
+    const WIT_PACKET_SIZE: usize = 11;
+    const GPS_MAX_PACKET_SIZE: usize = 82;
+    const RPI_MAX_PACKET_SIZE: usize = 60;
 
     #[local]
     struct Local {
@@ -193,9 +197,9 @@ mod app {
 
         let (tx_rpi, rx_rpi) = serial_rpi.split();
 
-        let read_buf_gps: VecDeque<u8> = VecDeque::new();
-        let read_buf_incl: VecDeque<u8> = VecDeque::new();
-        let read_buf_rpi: VecDeque<u8> = VecDeque::new();
+        let read_buf_gps: AllocRingBuffer<u8> = AllocRingBuffer::new(GPS_MAX_PACKET_SIZE);
+        let read_buf_incl: AllocRingBuffer<u8> = AllocRingBuffer::new(WIT_PACKET_SIZE);
+        let read_buf_rpi: AllocRingBuffer<u8> = AllocRingBuffer::new(RPI_MAX_PACKET_SIZE);
 
         let reg_data = RegularData::default();
 
@@ -331,7 +335,7 @@ mod app {
             if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
                 ctx.shared.read_buf_gps.lock(|read_buf| {
-                    read_buf.push_back(byte);
+                    read_buf.push(byte);
 
                     if read_buf.len() < 2 {
                         return;
@@ -347,7 +351,7 @@ mod app {
                     if [last1, last2] == end {
                         // message complete
                         // call process function
-                        let data: Vec<u8> = read_buf.drain(..).collect();
+                        let data: Vec<u8> = read_buf.drain().collect();
                         defmt::debug!("Packet: {=[u8]:02x}", data);
                         if let Some(gps_data) = Nmea::parse_nmea(&data) {
                             defmt::info!("{}", gps_data);
@@ -374,15 +378,15 @@ mod app {
             if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
                 ctx.shared.read_buf_incl.lock(|read_buf| {
-                    read_buf.push_back(byte);
+                    read_buf.push(byte);
 
                     while !read_buf.is_empty() && read_buf[0] != 0x55 {
-                        read_buf.pop_front();
+                        read_buf.clear();
                     }
 
                     // message complete
-                    if read_buf.len() > PACKET_SIZE {
-                        let packet: Vec<u8> = read_buf.drain(..PACKET_SIZE).collect();
+                    if read_buf.len() > WIT_PACKET_SIZE {
+                        let packet: Vec<u8> = read_buf.drain().collect();
                         defmt::debug!("Packet: {=[u8]:02x}", packet);
                         if let Some(wit_data) = WIT::parse_wit(&packet) {
                             defmt::info!("{}", wit_data);
@@ -414,12 +418,13 @@ mod app {
             if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {=u8:a}", byte);
                 ctx.shared.read_buf_rpi.lock(|read_buf| {
-                    if !read_buf.is_empty() && byte == b'\0' {
-                        let command_json: Vec<u8> = read_buf.drain(..).collect();
+                    if byte == b'\0' {
+                        let command_json: Vec<u8> = read_buf.drain().collect();
                         defmt::info!("Command received: {=[u8]:a}", command_json);
                         command = Command::from_json(command_json.as_slice());
+                        read_buf.clear();
                     }
-                    read_buf.push_back(byte);
+                    read_buf.push(byte);
                 });
             } else {
                 defmt::error!("RX failed to read");
