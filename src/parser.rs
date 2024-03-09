@@ -1,7 +1,6 @@
 use core::{convert::TryInto, mem::size_of};
 
 use nom::bytes::complete::take;
-
 pub use nom::IResult;
 
 pub fn take_i16_le(s: &[u8]) -> IResult<&[u8], i16> {

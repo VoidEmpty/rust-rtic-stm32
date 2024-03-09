@@ -1,6 +1,7 @@
 #![warn(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
 #![no_main]
 #![no_std]
+#![feature(type_alias_impl_trait)]
 
 // RTT and defmt logger setup
 use defmt_rtt as _;
@@ -16,11 +17,13 @@ fn panic() -> ! {
 // add rust collections with custom allocator
 extern crate alloc;
 
+mod nmea_protocol;
 mod parser;
 mod wit_protocol;
 
-#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1, SPI2])]
+#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
 mod app {
+
     use alloc::collections::VecDeque;
     use alloc::vec::Vec;
 
@@ -28,12 +31,14 @@ mod app {
 
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
+        pac::USART1,
         pac::USART2,
         prelude::*,
         serial::{config::Config, Event, Rx, Serial, Tx},
     };
 
-    use crate::wit_protocol::{get_wit_data, WITData};
+    use crate::nmea_protocol::Nmea;
+    use crate::wit_protocol::WIT;
 
     // Setup heap allocator for rust collections
     use embedded_alloc::Heap;
@@ -44,8 +49,9 @@ mod app {
     // Resources
     #[shared]
     struct Shared {
-        read_buf: VecDeque<u8>,
-        write_buf: VecDeque<u8>,
+        read_buf1: VecDeque<u8>,
+        read_buf2: VecDeque<u8>,
+        write_buf2: VecDeque<u8>,
     }
 
     const PACKET_SIZE: usize = 11;
@@ -53,12 +59,14 @@ mod app {
     #[local]
     struct Local {
         commands: VecDeque<Vec<u8>>,
-        tx: Tx<USART2>,
-        rx: Rx<USART2>,
+        tx1: Tx<USART1>,
+        rx1: Rx<USART1>,
+        tx2: Tx<USART2>,
+        rx2: Rx<USART2>,
     }
 
     #[init]
-    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(ctx: init::Context) -> (Shared, Local) {
         defmt::debug!("Init started");
 
         // Initialize the allocator
@@ -87,10 +95,21 @@ mod app {
 
         let gpioa = ctx.device.GPIOA.split();
 
+        let tx_pin = gpioa.pa9;
+        let rx_pin = gpioa.pa10;
+
+        let mut serial1: Serial<USART1, u8> = Serial::new(
+            ctx.device.USART1,
+            (tx_pin, rx_pin),
+            Config::default().baudrate(9600.bps()),
+            &clocks,
+        )
+        .unwrap();
+
         let tx_pin = gpioa.pa2;
         let rx_pin = gpioa.pa3;
 
-        let mut serial: Serial<USART2, u8> = Serial::new(
+        let mut serial2: Serial<USART2, u8> = Serial::new(
             ctx.device.USART2,
             (tx_pin, rx_pin),
             Config::default().baudrate(9600.bps()),
@@ -98,12 +117,15 @@ mod app {
         )
         .unwrap();
 
-        serial.listen(Event::Rxne);
+        serial1.listen(Event::Rxne);
+        serial2.listen(Event::Rxne);
 
-        let (tx, rx) = serial.split();
+        let (tx1, rx1) = serial1.split();
+        let (tx2, rx2) = serial2.split();
 
-        let read_buf: VecDeque<u8> = VecDeque::new();
-        let write_buf: VecDeque<u8> = VecDeque::new();
+        let read_buf1: VecDeque<u8> = VecDeque::new();
+        let read_buf2: VecDeque<u8> = VecDeque::new();
+        let write_buf2: VecDeque<u8> = VecDeque::new();
 
         // Configure inclinometer
         let mut commands = VecDeque::new();
@@ -118,18 +140,20 @@ mod app {
         commands.push_back([0xff, 0xaa, 0x00, 0x00, 0x00].into());
 
         // send_command::spawn_after(Duration::<u64, 1, 1000>::from_ticks(2000)).unwrap();
-
         (
             Shared {
                 // Initialization of shared resources go here
-                read_buf,
-                write_buf,
+                read_buf1,
+                read_buf2,
+                write_buf2,
             },
             Local {
                 // Initialization of local resources go here
                 commands,
-                tx,
-                rx,
+                tx1,
+                rx1,
+                tx2,
+                rx2,
             },
         )
     }
@@ -144,76 +168,66 @@ mod app {
     #[task(local = [commands], shared = [write_buf2], priority = 1)]
     async fn send_command(mut ctx: send_command::Context) {
         loop {
-        if let Some(cmd) = ctx.local.commands.pop_front() {
-            defmt::info!("Sending command: {=[u8]:02x}", cmd);
-            for byte in cmd {
-                ctx.shared
+            if let Some(cmd) = ctx.local.commands.pop_front() {
+                defmt::info!("Sending command: {=[u8]:02x}", cmd);
+                for byte in cmd {
+                    ctx.shared
                         .write_buf2
-                    .lock(|write_buf| write_buf.push_back(byte));
-            }
+                        .lock(|write_buf| write_buf.push_back(byte));
+                }
                 Systick::delay(1000.millis()).await;
             }
         }
     }
 
-    #[task(shared = [read_buf])]
-    fn process_packet(mut ctx: process_packet::Context) {
-        let mut packet: Vec<u8> = alloc::vec![];
+    #[task(binds = USART1, local = [tx1, rx1], shared = [read_buf1])]
+    fn usart1(mut ctx: usart1::Context) {
+        let rx = ctx.local.rx1;
 
-        ctx.shared.read_buf.lock(|read_buf| {
-            while !read_buf.is_empty() && read_buf[0] != 0x55 {
-                read_buf.pop_front();
+        let mut start_read = false;
+
+        if rx.is_rx_not_empty() {
+            if let Ok(byte) = rx.read() {
+                defmt::debug!("RX Byte value: {:02x}", byte);
+                ctx.shared.read_buf1.lock(|read_buf| {
+                    // wait for header byte
+                    read_buf.push_back(byte);
+
+                    // check last two elements
+                    let mut it = read_buf.iter().rev().take(2);
+                    let last2 = it.next().unwrap().clone();
+                    let last1 = it.next().unwrap().clone();
+
+                    let end = ['\r', '\n'].map(|x| x as u8);
+
+                    if [last1, last2] == end {
+                        if !start_read {
+                            read_buf.clear();
+                            start_read = true;
+                        } else {
+                            // message complete
+                            // call process function
+                            let data: Vec<u8> = read_buf.drain(..).collect();
+                            defmt::debug!("Packet: {=[u8]:02x}", data);
+                            if let Some(gps_data) = Nmea::parse_nmea(&data) {
+                                defmt::info!("{}", gps_data);
+                            }
+                        }
+                    }
+                });
             }
-
-            // wait untill packet is full
-            if read_buf.len() < PACKET_SIZE {
-                return;
-            }
-
-            packet = read_buf.drain(..PACKET_SIZE).collect();
-        });
-
-        defmt::debug!("Packet: {=[u8]:02x}", packet);
-
-        if packet.len() != PACKET_SIZE {
-            return;
-        }
-
-        let mut checksum: u8 = 0;
-        let expected_checksum = packet[10];
-
-        // calculate checksum
-        for &byte in &packet[..10] {
-            checksum = checksum.wrapping_add(byte);
-        }
-
-        if checksum == expected_checksum {
-            let data_type = packet[1];
-            let data = packet[2..10].to_vec();
-
-            if let WITData::Angle(wit_data) = get_wit_data(data_type, data.as_slice()) {
-                defmt::info!("{}", wit_data);
-            }
-        } else {
-            defmt::warn!(
-                "Checksum doesn't match! got: {:02x}, expected: {:02x}",
-                checksum,
-                expected_checksum
-            );
         }
     }
 
-    #[task(binds = USART2, local = [tx, rx], shared = [read_buf, write_buf])]
+    #[task(binds = USART2, local = [tx2, rx2], shared = [read_buf2, write_buf2])]
     fn usart2(mut ctx: usart2::Context) {
-        let rx = ctx.local.rx;
-        let tx = ctx.local.tx;
-
-        // rx.unlisten();
+        let rx = ctx.local.rx2;
+        let tx = ctx.local.tx2;
 
         let mut start_read = false;
 
         if tx.is_tx_empty() {
-            ctx.shared.write_buf.lock(|write_buf| {
+            ctx.shared.write_buf2.lock(|write_buf| {
                 if let Some(byte) = write_buf.pop_front() {
                     if let Ok(_) = tx.write(byte) {
                         defmt::debug!("TX Byte value: {:02x}", byte);
@@ -226,25 +240,24 @@ mod app {
         if rx.is_rx_not_empty() && start_read {
             if let Ok(byte) = rx.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
-                ctx.shared.read_buf.lock(|read_buf| {
-                    // wait for header byte
-                    if read_buf.is_empty() {
-                        if byte == 0x55 {
-                            read_buf.push_back(byte);
-                        }
-                    } else {
-                        read_buf.push_back(byte);
+                ctx.shared.read_buf2.lock(|read_buf| {
+                    read_buf.push_back(byte);
+
+                    while !read_buf.is_empty() && read_buf[0] != 0x55 {
+                        read_buf.pop_front();
                     }
 
                     // message complete
                     if read_buf.len() > PACKET_SIZE {
-                        process_packet::spawn().unwrap();
+                        let packet: Vec<u8> = read_buf.drain(..PACKET_SIZE).collect();
+                        defmt::debug!("Packet: {=[u8]:02x}", packet);
+                        if let Some(wit_data) = WIT::parse_wit(&packet) {
+                            defmt::info!("{}", wit_data);
+                        }
                     }
                 });
             }
         }
-
-        // rx.listen();
     }
 }
 

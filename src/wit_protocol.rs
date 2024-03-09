@@ -183,7 +183,6 @@ impl SGPSV {
     }
 }
 
-#[derive(Format)]
 pub struct SQuat {
     q0: i16,
     q1: i16,
@@ -198,6 +197,17 @@ impl SQuat {
         let (data, q2) = take_i16_le(data).unwrap();
         let (_, q3) = take_i16_le(data).unwrap();
         Self { q0, q1, q2, q3 }
+    }
+}
+
+impl defmt::Format for SQuat {
+    fn format(&self, fmt: defmt::Formatter) {
+        let q0 = self.q0 as f32 * QUAT_FACTOR;
+        let q1 = self.q1 as f32 * QUAT_FACTOR;
+        let q2 = self.q2 as f32 * QUAT_FACTOR;
+        let q3 = self.q3 as f32 * QUAT_FACTOR;
+
+        defmt::write!(fmt, "q0 = {}, q1 = {}, q2 = {}, q3 = {}", q0, q1, q2, q3)
     }
 }
 
@@ -228,18 +238,49 @@ pub enum WITData {
     Invalid,
 }
 
-pub fn get_wit_data(data_type: u8, data: &[u8]) -> WITData {
-    use WITData::*;
-    match data_type {
-        TIME => Acc(SAcc::new(data)),
-        ANGULAR_VELOCITY => Gyro(SGyro::new(data)),
-        ANGLE => Angle(SAngle::new(data)),
-        MAGNETIC_FIELD => Mag(SMag::new(data)),
-        PORT => DStatus(SDStatus::new(data)),
-        BAROMETRIC_ALTITUDE => Press(SPress::new(data)),
-        LATITUDE_LONGITUDE => LonLat(SLonLat::new(data)),
-        GROUND_SPEED => Gpsv(SGPSV::new(data)),
-        QUATERNION => Quat(SQuat::new(data)),
-        _ => Invalid,
+pub struct WIT;
+
+impl WIT {
+    fn get_checksum(data: &[u8]) -> (u8, u8) {
+        let mut checksum: u8 = 0;
+        let expected_checksum = data[10];
+
+        // calculate checksum
+        for &byte in &data[..10] {
+            checksum = checksum.wrapping_add(byte);
+        }
+
+        (checksum, expected_checksum)
+    }
+
+    pub fn parse_wit(packet_data: &[u8]) -> Option<WITData> {
+        let (checksum, expected_checksum) = Self::get_checksum(packet_data);
+        if checksum != expected_checksum {
+            defmt::warn!(
+                "Checksum doesn't match! got: {:02x}, expected: {:02x}",
+                checksum,
+                expected_checksum
+            );
+            return None;
+        }
+
+        let data_type = packet_data[1];
+        let data = &packet_data[2..10];
+
+        use WITData::*;
+        let result = match data_type {
+            TIME => Acc(SAcc::new(data)),
+            ANGULAR_VELOCITY => Gyro(SGyro::new(data)),
+            ANGLE => Angle(SAngle::new(data)),
+            MAGNETIC_FIELD => Mag(SMag::new(data)),
+            PORT => DStatus(SDStatus::new(data)),
+            BAROMETRIC_ALTITUDE => Press(SPress::new(data)),
+            LATITUDE_LONGITUDE => LonLat(SLonLat::new(data)),
+            GROUND_SPEED => Gpsv(SGPSV::new(data)),
+            QUATERNION => Quat(SQuat::new(data)),
+            _ => Invalid,
+        };
+
+        Some(result)
     }
 }
