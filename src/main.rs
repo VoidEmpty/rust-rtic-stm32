@@ -93,14 +93,7 @@ mod app {
         let mut syscfg = ctx.device.SYSCFG.constrain();
 
         // clocls
-        let clocks = rcc
-            .cfgr
-            .use_hse(8.MHz())
-            .sysclk(84.MHz())
-            .hclk(84.MHz())
-            .require_pll48clk()
-            .pclk2(21.MHz())
-            .freeze();
+        let clocks = rcc.cfgr.freeze();
 
         let gpioa = ctx.device.GPIOA.split();
         let gpiod = ctx.device.GPIOD.split();
@@ -211,7 +204,7 @@ mod app {
         }
     }
 
-    #[task(binds = EXTI0, local = [button, led, motor_dir, motor_pwm])]
+    #[task(binds = RTC_WKUP, local = [button, led, motor_dir, motor_pwm])]
     fn button_pressed(ctx: button_pressed::Context) {
         ctx.local.button.clear_interrupt_pending_bit();
         ctx.local.led.toggle();
