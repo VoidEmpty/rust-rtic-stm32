@@ -13,6 +13,9 @@
                     "programBinary": "${workspaceFolder}\\target\\thumbv7em-none-eabihf\\debug\\inclinometer",
                 }
             ],
+            "env": {
+                "DEFMT_LOG": "debug"
+            }
         }
     ]
 }

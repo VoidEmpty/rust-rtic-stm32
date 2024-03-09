@@ -47,6 +47,6 @@ overflow-checks = true
 [profile.release]
 lto = true              # better LLVM’s link time optimizations
 codegen-units = 1       # compilation time optimizations
-debug = false           # disable debug info
+debug = true           # disable debug info
 opt-level = "s"         # smaller binary size
 overflow-checks = false # integer overflow checks
