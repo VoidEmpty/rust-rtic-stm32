@@ -17,9 +17,8 @@ fn panic() -> ! {
 // add rust collections with custom allocator
 extern crate alloc;
 
-mod parser;
-pub mod nmea_protocol;
-pub mod wit_protocol;
+extern crate nmea_protocol;
+extern crate wit_protocol;
 
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
 mod app {
@@ -37,8 +36,8 @@ mod app {
         serial::{config::Config, Event, Rx, Serial, Tx},
     };
 
-    use crate::nmea_protocol::Nmea;
-    use crate::wit_protocol::WIT;
+    use nmea_protocol::Nmea;
+    use wit_protocol::WIT;
 
     // Setup heap allocator for rust collections
     use embedded_alloc::Heap;

@@ -1,3 +1,8 @@
+#![warn(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
+#![no_main]
+#![no_std]
+#![feature(type_alias_impl_trait)]
+
 use defmt::Format;
 use nom::branch::alt;
 

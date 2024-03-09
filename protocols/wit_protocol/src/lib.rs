@@ -1,9 +1,13 @@
-// quaternion
+#![warn(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
+#![no_main]
+#![no_std]
+#![feature(type_alias_impl_trait)]
 #![allow(dead_code)]
 
 use defmt::Format;
 extern crate alloc;
 
+mod parser;
 use crate::parser::*;
 
 // 16-bit signed integer (between −32,768 to 32,767), normalized by dividing by 32,768)
