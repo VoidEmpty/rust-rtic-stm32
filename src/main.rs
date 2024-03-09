@@ -17,9 +17,9 @@ fn panic() -> ! {
 // add rust collections with custom allocator
 extern crate alloc;
 
-mod nmea_protocol;
 mod parser;
-mod wit_protocol;
+pub mod nmea_protocol;
+pub mod wit_protocol;
 
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
 mod app {
@@ -82,7 +82,7 @@ mod app {
 
         // Initialize the systick interrupt & obtain the token to prove that we did
         let systick_mono_token = rtic_monotonics::create_systick_token!();
-        Systick::start(ctx.core.SYST, 36_000_000, systick_mono_token); // default STM32F303 clock-rate is 36MHz
+        Systick::start(ctx.core.SYST, 168_000_000, systick_mono_token); // default STM32F407 clock-rate is 16MHz
 
         let clocks = rcc
             .cfgr
@@ -190,8 +190,11 @@ mod app {
             if let Ok(byte) = rx.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
                 ctx.shared.read_buf1.lock(|read_buf| {
-                    // wait for header byte
                     read_buf.push_back(byte);
+
+                    if read_buf.len() < 2 {
+                        return;
+                    }
 
                     // check last two elements
                     let mut it = read_buf.iter().rev().take(2);
@@ -260,13 +263,3 @@ mod app {
         }
     }
 }
-
-// #[cfg(test)]
-// #[defmt_test::tests]
-// mod unit_tests {
-//     use defmt::assert;
-//     #[test]
-//     fn it_works() {
-//         assert!(true)
-//     }
-// }

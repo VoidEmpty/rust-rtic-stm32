@@ -1,7 +1,7 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 
 # set runner for cargo
-runner = "probe-run --chip STM32F407VGTx"
+runner = "probe-rs run --chip STM32F407VGTx"
 
 # custom linker flags for ARM target
 rustflags = [
