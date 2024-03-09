@@ -19,7 +19,7 @@
 				"reveal": "silent",
 				"panel": "dedicated",
 				"showReuseMessage": false,
-				"revealProblems": "onProblem"
+				"revealProblems": "never"
 			}
 		},
 		{
