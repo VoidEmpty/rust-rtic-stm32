@@ -8,7 +8,7 @@
 rustup target add thumbv7em-none-eabihf
 ```
 
-Для отладки потребуется [probe-run](https://github.com/knurling-rs/probe-run). И проверка переполнения стека [flip-link](https://github.com/knurling-rs/flip-link).
+Для отладки потребуется [probe-rs](https://probe.rs). И проверка переполнения стека [flip-link](https://github.com/knurling-rs/flip-link).
 
 ```shell
 cargo install probe-rs --features cli
