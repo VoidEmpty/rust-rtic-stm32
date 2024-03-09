@@ -3,6 +3,9 @@
         "**/Cargo.lock": true,
         "**/target/": true,
     },
+    "files.readonlyInclude": {
+        "STM32F407.svd": true
+    },
     "lldb.displayFormat": "auto",
     "lldb.dereferencePointers": true,
     "lldb.consoleMode": "commands",
