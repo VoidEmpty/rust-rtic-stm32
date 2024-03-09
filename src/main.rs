@@ -22,17 +22,18 @@ extern crate wit_protocol;
 
 mod tmc2160;
 
-#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
+#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2])]
 mod app {
     use alloc::vec::Vec;
     use alloc::{collections::VecDeque, vec};
 
     use rtic_monotonics::systick::Systick;
 
+    use stm32f4xx_hal::gpio::gpiod;
     use stm32f4xx_hal::pac::SPI3;
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
-        gpio::{gpioa, gpiob, gpiod, Edge, ExtiPin, Input, Output, PushPull},
+        gpio::{gpiob, Output, PushPull},
         pac::TIM4,
         pac::USART1,
         pac::USART2,
@@ -66,24 +67,16 @@ mod app {
         commands: VecDeque<Vec<u8>>,
         motor_dir: gpiob::PB6<Output<PushPull>>,
         motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
+        spi_motor: Spi<SPI3>,
+        cs_motor: gpiod::PD0<Output<PushPull>>,
         tx1: Tx<USART2>,
         rx1: Rx<USART2>,
         tx2: Tx<USART1>,
         rx2: Rx<USART1>,
     }
 
-    fn spi_send(spi: &mut Spi<SPI3>, mut address: u8, value: u32) {
-        address |= 0x80;
-        let mut buffer = [0; 5];
-        let mut package: Vec<u8> = vec![address];
-        for byte in value.to_le_bytes() {
-            package.push(byte);
-        }
-        let _ = spi.transfer(&mut buffer, &package);
-    }
-
     #[init]
-    fn init(mut ctx: init::Context) -> (Shared, Local) {
+    fn init(ctx: init::Context) -> (Shared, Local) {
         defmt::debug!("Init started");
 
         // Initialize the allocator
@@ -114,7 +107,10 @@ mod app {
         let miso = gpioc.pc11.into_alternate();
         let mosi = gpioc.pc12.into_alternate();
 
-        let mut spi3 = Spi::new(
+        // create CS instance
+        let cs_motor = gpiod.pd0.into_push_pull_output();
+
+        let spi_motor = Spi::new(
             ctx.device.SPI3,
             (sck, miso, mosi),
             Mode {
@@ -124,16 +120,6 @@ mod app {
             1.MHz().into(),
             &clocks,
         );
-
-        use crate::tmc2160::*;
-
-        spi_send(&mut spi3, registers::CHOPCONF, 0x110140c3);
-        spi_send(&mut spi3, registers::GLOBAL_SCALER, 0);
-        spi_send(&mut spi3, registers::IHOLD_IRUN, 0x000f0909);
-        spi_send(&mut spi3, registers::TPOWERDOWN, 10);
-        spi_send(&mut spi3, registers::TPWMTHRS, 0);
-        spi_send(&mut spi3, registers::PWMCONF, 0xc4000160);
-        spi_send(&mut spi3, registers::GCONF, 0x00000005);
 
         // add diagnostic leds
         // let led = gpiod.pd13.into_push_pull_output();
@@ -191,7 +177,6 @@ mod app {
         // save config
         commands.push_back([0xff, 0xaa, 0x00, 0x00, 0x00].into());
 
-        // send_command::spawn_after(Duration::<u64, 1, 1000>::from_ticks(2000)).unwrap();
         (
             Shared {
                 // Initialization of shared resources go here
@@ -204,6 +189,8 @@ mod app {
                 commands,
                 motor_pwm,
                 motor_dir,
+                spi_motor,
+                cs_motor,
                 tx1,
                 rx1,
                 tx2,
@@ -216,10 +203,45 @@ mod app {
     fn idle(_: idle::Context) -> ! {
         defmt::info!("In idle");
 
+        use crate::tmc2160::*;
+
+        let log_error = |(addr, val)| {
+            defmt::error!(
+                "Failed to write value {:04x} to SPI on addres {:08x}",
+                val,
+                addr
+            );
+            // panic!();
+        };
+
+        spi_send::spawn(registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
+        spi_send::spawn(registers::GLOBAL_SCALER, 0).unwrap_or_else(log_error);
+        spi_send::spawn(registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
+        spi_send::spawn(registers::TPOWERDOWN, 10).unwrap_or_else(log_error);
+        spi_send::spawn(registers::TPWMTHRS, 0).unwrap_or_else(log_error);
+        spi_send::spawn(registers::PWMCONF, 0xc4000160).unwrap_or_else(log_error);
+        spi_send::spawn(registers::GCONF, 0x00000005).unwrap_or_else(log_error);
+
         loop {}
     }
 
-    #[task(local = [commands], shared = [write_buf2], priority = 1)]
+    #[task(local = [spi_motor, cs_motor], shared = [write_buf2], priority = 1)]
+    async fn spi_send(ctx: spi_send::Context, mut address: u8, value: u32) {
+        let spi = ctx.local.spi_motor;
+        let cs = ctx.local.cs_motor;
+
+        address |= 0x80;
+        let mut buffer = [0; 5];
+        let mut package: Vec<u8> = vec![address];
+        for byte in value.to_le_bytes() {
+            package.push(byte);
+        }
+        cs.set_low();
+        let _ = spi.transfer(&mut buffer, package.as_mut_slice());
+        cs.set_high();
+    }
+
+    #[task(local = [commands], shared = [write_buf2], priority = 2)]
     async fn send_command(mut ctx: send_command::Context) {
         loop {
             if let Some(cmd) = ctx.local.commands.pop_front() {
