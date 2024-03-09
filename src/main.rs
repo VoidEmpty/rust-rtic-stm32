@@ -141,16 +141,18 @@ mod app {
         loop {}
     }
 
-    #[task(local = [commands], shared= [write_buf])]
-    fn send_command(mut ctx: send_command::Context) {
+    #[task(local = [commands], shared = [write_buf2], priority = 1)]
+    async fn send_command(mut ctx: send_command::Context) {
+        loop {
         if let Some(cmd) = ctx.local.commands.pop_front() {
             defmt::info!("Sending command: {=[u8]:02x}", cmd);
             for byte in cmd {
                 ctx.shared
-                    .write_buf
+                        .write_buf2
                     .lock(|write_buf| write_buf.push_back(byte));
             }
-            send_command::spawn_after(Duration::<u64, 1, 1000>::from_ticks(2000)).unwrap();
+                Systick::delay(1000.millis()).await;
+            }
         }
     }
 
