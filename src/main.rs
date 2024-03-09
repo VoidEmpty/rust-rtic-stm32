@@ -66,6 +66,7 @@ mod app {
     }
 
     const PACKET_SIZE: usize = 11;
+    const ENCODER_RES: usize = 360;
 
     #[local]
     struct Local {
@@ -237,8 +238,7 @@ mod app {
         // rotate_motor::spawn(30.0).unnwrap();
         // rotate_motor::spawn(30.0).unnwrap();
 
-        loop {
-        }
+        loop {}
     }
 
     #[task(local = [spi_motor, cs_motor, drv_en], priority = 3)]
@@ -306,17 +306,7 @@ mod app {
     #[task(local = [encoder, motor_pwm, motor_dir], shared = [reg_data], priority = 3)]
     async fn rotate_motor(mut ctx: rotate_motor::Context, target_angle: f32) {
         defmt::info!("Rotating motor on angle {}", target_angle);
-        let target_count = (target_angle * 1000.0 / 360.0) as u32;
-
-        let count = ctx.local.encoder.count();
-        if count < target_count {
-            ctx.local.motor_dir.set_low();
-        }
-        if count < target_count {
-            ctx.local.motor_dir.set_high();
-        } else {
-            return;
-        }
+        let target_count = (target_angle * ENCODER_RES as f32 / 360.0) as u32;
 
         ctx.local.motor_pwm.enable(Channel::C2);
         loop {
@@ -330,9 +320,14 @@ mod app {
                 });
                 ctx.local.motor_pwm.disable(Channel::C2);
                 break;
+            } else if count < target_count {
+                ctx.local.motor_dir.set_high();
+            } else if count > target_count {
+                ctx.local.motor_dir.set_low();
             }
+
             ctx.shared.reg_data.lock(|data| {
-                data.motor_data.motor_angle = count as f32 * (360.0 / 1000.0);
+                data.motor_data.motor_angle = count as f32 * (360.0 / ENCODER_RES as f32);
                 data.motor_data.motor_state = rpi_json::data_types::MotorState::Running;
             });
         }
