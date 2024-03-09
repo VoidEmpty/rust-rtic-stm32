@@ -233,11 +233,11 @@ mod app {
     #[idle]
     fn idle(_: idle::Context) -> ! {
         defmt::info!("In idle");
+        // let _ = rotate_motor::spawn(90.0);
+        // rotate_motor::spawn(30.0).unnwrap();
+        // rotate_motor::spawn(30.0).unnwrap();
 
         loop {
-            // rotate_motor::spawn(60.0).unwrap();
-            // rotate_motor::spawn(30.0).unwrap();
-            // rotate_motor::spawn(180.0).unwrap();
         }
     }
 
@@ -310,10 +310,10 @@ mod app {
 
         let count = ctx.local.encoder.count();
         if count < target_count {
-            ctx.local.motor_dir.set_high();
+            ctx.local.motor_dir.set_low();
         }
         if count < target_count {
-            ctx.local.motor_dir.set_low();
+            ctx.local.motor_dir.set_high();
         } else {
             return;
         }
