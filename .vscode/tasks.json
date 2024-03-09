@@ -9,9 +9,45 @@
 			],
 			"group": {
 				"kind": "build",
-				"isDefault": true
+				"isDefault": false
 			},
 			"label": "rust: cargo embed",
+			"presentation": {
+				"echo": true,
+				"focus": false,
+				"clear": true,
+				"reveal": "silent",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"revealProblems": "never"
+			}
+		},
+		{
+			"type": "cargo",
+			"command": "embed",
+			"dependsOn": "rust: erase chip",
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"label": "rust: cargo embed with erase",
+			"presentation": {
+				"echo": true,
+				"focus": false,
+				"clear": true,
+				"reveal": "silent",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"revealProblems": "never"
+			}
+		},
+		{
+			"type": "shell",
+			"command": "probe-rs erase --chip STM32F407VGTx",
+			"label": "rust: erase chip",
 			"presentation": {
 				"echo": true,
 				"focus": false,

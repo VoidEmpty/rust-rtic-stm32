@@ -30,12 +30,12 @@ mod app {
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
         gpio::{gpioa, gpiod, Edge, ExtiPin, Input, Output, PushPull},
-        pac::TIM2,
+        pac::TIM3,
         pac::USART1,
         pac::USART2,
         prelude::*,
         serial::{config::Config, Event, Rx, Serial, Tx},
-        timer::ChannelBuilder,
+        timer::{Channel1, Channel2, PwmChannel},
     };
 
     use nmea_protocol::Nmea;
@@ -57,15 +57,13 @@ mod app {
 
     const PACKET_SIZE: usize = 11;
 
-    type PWM = stm32f4xx_hal::timer::PwmHz<TIM2, ChannelBuilder<TIM2, 0>>;
-
     #[local]
     struct Local {
         commands: VecDeque<Vec<u8>>,
         button: gpioa::PA0<Input>,
         led: gpiod::PD13<Output<PushPull>>,
         motor_dir: gpioa::PA14<Output<PushPull>>,
-        motor_pwm: PWM,
+        motor_pwm: PwmChannel<TIM3, 0, false>,
         tx1: Tx<USART1>,
         rx1: Rx<USART1>,
         tx2: Tx<USART2>,
@@ -117,9 +115,9 @@ mod app {
         let led = gpiod.pd13.into_push_pull_output();
 
         // add pwm for motor
-        let pwm_pin = gpioa.pa15.into_alternate();
-        let pwm_channel = ChannelBuilder::new(pwm_pin);
-        let motor_pwm: PWM = ctx.device.TIM2.pwm_hz(pwm_channel, 1600.Hz(), &clocks);
+        let channels = (Channel1::new(gpioa.pa6), Channel2::new(gpioa.pa7));
+        let (mut motor_pwm, _) = ctx.device.TIM3.pwm_hz(channels, 2.kHz(), &clocks).split();
+        motor_pwm.enable();
         // dir for motor
         let motor_dir = gpioa.pa14.into_push_pull_output();
 
