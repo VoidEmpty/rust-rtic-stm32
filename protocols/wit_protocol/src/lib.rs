@@ -1,5 +1,3 @@
-#![feature(type_alias_impl_trait)]
-#![no_main]
 #![no_std]
 
 use defmt::Format;
