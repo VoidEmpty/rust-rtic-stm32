@@ -5,6 +5,7 @@ extern crate alloc;
 
 mod parser;
 use crate::parser::*;
+use serde::Serialize;
 
 // 16-bit signed integer (between −32,768 to 32,767), normalized by dividing by 32,768)
 const NORM: f32 = i16::MAX as f32;
@@ -183,11 +184,12 @@ impl SGPSV {
     }
 }
 
+#[derive(Serialize)]
 pub struct SQuat {
-    q0: i16,
-    q1: i16,
-    q2: i16,
-    q3: i16,
+    pub q0: i16,
+    pub q1: i16,
+    pub q2: i16,
+    pub q3: i16,
 }
 
 impl SQuat {

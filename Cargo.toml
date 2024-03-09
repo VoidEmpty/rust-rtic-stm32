@@ -27,6 +27,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 # protocol libraries
 nmea_protocol = { path = "protocols/nmea_protocol" }
 wit_protocol = { path = "protocols/wit_protocol" }
+rpi_json = { path = "protocols/rpi_json" }
 
 # stm32f407 HAL crate
 [dependencies.stm32f4xx-hal]
@@ -52,6 +53,10 @@ harness = false
 
 [[test]]
 name = "nmea_parser_tests"
+harness = false
+
+[[test]]
+name = "rpi_json_tests"
 harness = false
 
 [profile.dev]

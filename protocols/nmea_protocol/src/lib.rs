@@ -2,17 +2,15 @@
 
 use defmt::Format;
 use nom::branch::alt;
-
-// extern crate lexical_core;
-// extern crate nom;
-
 use nom::bytes::complete::tag;
 use nom::character::complete::alpha1;
 use nom::number::complete::float;
 use nom::sequence::tuple;
 use nom::IResult;
 
-#[derive(Format, Debug, PartialEq)]
+use serde::Serialize;
+
+#[derive(Format, Debug, PartialEq, Serialize)]
 pub enum Direction {
     North,
     South,
@@ -20,15 +18,15 @@ pub enum Direction {
     West,
 }
 
-#[derive(Format)]
+#[derive(Format, Serialize)]
 pub enum DataType {
     GLL,
     GGA,
     Invalid,
 }
 
+#[derive(Serialize)]
 pub struct GpsData {
-    data_type: DataType,
     pub latitude: f32,
     pub lat_dir: Direction,
     pub longitude: f32,
@@ -39,8 +37,7 @@ impl Format for GpsData {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(
             f,
-            "GpsData: data_type: {}, latitude: {} {}, longitude: {} {}",
-            self.data_type,
+            "GpsData: latitude: {} {}, longitude: {} {}",
             self.latitude,
             self.lat_dir,
             self.longitude,
@@ -93,7 +90,6 @@ impl Nmea {
     }
 
     fn parse_nmea_gga(input: &[u8]) -> IResult<&[u8], GpsData> {
-        let data_type = DataType::GGA;
         // get time
         let (input, (_time, _)) = tuple((float, tag(",")))(input)?;
         // get location
@@ -103,7 +99,6 @@ impl Nmea {
         Ok((
             input,
             GpsData {
-                data_type,
                 latitude,
                 lat_dir,
                 longitude,
@@ -113,7 +108,6 @@ impl Nmea {
     }
 
     fn parse_nmea_gll(input: &[u8]) -> IResult<&[u8], GpsData> {
-        let data_type = DataType::GLL;
         // get location
         let (input, (latitude, lat_dir)) = Self::parse_nmea_coord(input)?;
         let (input, (longitude, lon_dir)) = Self::parse_nmea_coord(input)?;
@@ -123,7 +117,6 @@ impl Nmea {
         Ok((
             input,
             GpsData {
-                data_type,
                 latitude,
                 lat_dir,
                 longitude,
