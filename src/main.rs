@@ -35,7 +35,7 @@ mod app {
         gpio::{gpiob, gpiod, Output, PushPull},
         pac::{SPI3, TIM4, USART1, USART2, USART3},
         prelude::*,
-        serial::{config::Config, Event, Serial},
+        serial::{config::Config, Event, Rx, Serial, Tx},
         spi::*,
         timer::{Channel, Channel2, ChannelBuilder, PwmHz},
     };
@@ -77,7 +77,8 @@ mod app {
         spi_motor: Spi<SPI3>,
         serial_gps: Serial<USART1>,
         serial_incl: Serial<USART2>,
-        serial_rpi: Serial<USART3>,
+        tx_rpi: Tx<USART3>,
+        rx_rpi: Rx<USART3>,
         bracket_balance: u8,
     }
 
@@ -178,7 +179,9 @@ mod app {
 
         serial_gps.listen(Event::Rxne);
         serial_incl.listen(Event::Rxne);
-        serial_rpi.listen(Event::Txe);
+        serial_rpi.listen(Event::Rxne);
+
+        let (tx_rpi, rx_rpi) = serial_rpi.split();
 
         let read_buf_gps: VecDeque<u8> = VecDeque::new();
         let read_buf_incl: VecDeque<u8> = VecDeque::new();
@@ -216,7 +219,8 @@ mod app {
                 cs_motor,
                 serial_gps,
                 serial_incl,
-                serial_rpi,
+                tx_rpi,
+                rx_rpi,
                 bracket_balance,
             },
         )
@@ -352,30 +356,11 @@ mod app {
         });
     }
 
-    #[task(binds = USART3, local = [serial_rpi, bracket_balance], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_data, send_delay])]
+    #[task(binds = USART3, local = [rx_rpi, bracket_balance], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_data, send_delay])]
     fn usart3(mut ctx: usart3::Context) {
         defmt::trace!("USART3 interrupt");
         let bracket_balance = ctx.local.bracket_balance;
-        let serial = ctx.local.serial_rpi;
-
-        if serial.is_tx_empty() {
-            defmt::trace!("TX empty");
-            ctx.shared.write_buf_rpi.lock(|write_buf| {
-                // if let Some(byte) = write_buf.pop_front() {
-                //     if let Err(_) = serial.write(byte) {
-                //         defmt::error!("TX failed to write byte {=u8:a}", byte);
-                //     } else {
-                //         defmt::debug!("TX byte {=u8:a}", byte);
-                //     }
-                // } else {
-                //     defmt::warn!("write_buf_rpi is empty!!!");
-                // }
-                let buf: Vec<u8> = write_buf.drain(..).collect();
-                let _ = serial.bwrite_all(buf.as_slice()).unwrap();
-            });
-            serial.unlisten(Event::Txe);
-            serial.listen(Event::Rxne);
-        }
+        let serial = ctx.local.rx_rpi;
 
         let mut command: Option<Command> = None;
 
@@ -401,8 +386,6 @@ mod app {
             } else {
                 defmt::error!("RX failed to read");
             }
-            serial.listen(Event::Txe);
-            serial.unlisten(Event::Rxne);
         }
 
         let mut send_data = false;
@@ -437,7 +420,7 @@ mod app {
         }
     }
 
-    #[task(shared = [write_buf_rpi, reg_data, send_delay, stop_flag, send_data], priority = 1)]
+    #[task(local = [tx_rpi], shared = [write_buf_rpi, reg_data, send_delay, stop_flag, send_data], priority = 1)]
     async fn update_regualar_data(mut ctx: update_regualar_data::Context) {
         ctx.shared.send_data.lock(|flag| *flag = true);
 
@@ -460,15 +443,14 @@ mod app {
             // convert to json
             ctx.shared.reg_data.lock(|rdata| {
                 json_str = rdata.to_json().unwrap_or_default();
+                json_str.push('\0');
                 defmt::debug!("JSON data: {=str}", json_str);
             });
 
-            // replace buffer with new info
-            ctx.shared.write_buf_rpi.lock(|write_buf| {
-                let bytes = json_str.as_bytes();
-                *write_buf = VecDeque::with_capacity(bytes.len());
-                write_buf.extend(json_str.as_bytes());
-            });
+            if ctx.local.tx_rpi.is_tx_empty() {
+                defmt::trace!("TX empty");
+                let _ = ctx.local.tx_rpi.bwrite_all(json_str.as_bytes()).unwrap();
+            }
 
             Systick::delay(send_delay.millis()).await;
         }
