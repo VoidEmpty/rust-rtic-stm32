@@ -19,10 +19,15 @@ extern crate alloc;
 mod parser;
 mod wit_protocol;
 
-#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
+#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1, SPI2])]
 mod app {
     use alloc::collections::VecDeque;
     use alloc::vec::Vec;
+
+    use systick_monotonic::{fugit::Duration, Systick};
+
+    #[monotonic(binds = SysTick, default = true)]
+    type MonoTimer = Systick<1000>;
 
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
@@ -39,15 +44,18 @@ mod app {
     #[global_allocator]
     static HEAP: Heap = Heap::empty();
 
+    // Resources
     #[shared]
     struct Shared {
-        buf: VecDeque<u8>,
+        read_buf: VecDeque<u8>,
+        write_buf: VecDeque<u8>,
     }
 
     const PACKET_SIZE: usize = 11;
 
     #[local]
     struct Local {
+        commands: VecDeque<Vec<u8>>,
         tx: Tx<USART2>,
         rx: Rx<USART2>,
     }
@@ -64,7 +72,10 @@ mod app {
             unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
         }
 
+        // Setup clocks
         let rcc = ctx.device.RCC.constrain();
+        let mono = Systick::new(ctx.core.SYST, 36_000_000);
+
         let clocks = rcc
             .cfgr
             .use_hse(8.MHz())
@@ -76,7 +87,6 @@ mod app {
 
         let gpioa = ctx.device.GPIOA.split();
 
-        // Configure serial
         let tx_pin = gpioa.pa2;
         let rx_pin = gpioa.pa3;
 
@@ -92,44 +102,76 @@ mod app {
 
         let (tx, rx) = serial.split();
 
-        let buf: VecDeque<u8> = VecDeque::new();
+        let read_buf: VecDeque<u8> = VecDeque::new();
+        let write_buf: VecDeque<u8> = VecDeque::new();
+
+        // Configure inclinometer
+        let mut commands = VecDeque::new();
+
+        // special unlock/enable command??? (for some reason not documented anywhere)
+        commands.push_back([0xFF, 0xF0, 0xF0, 0xF0, 0xF0].into());
+        // unlock config
+        commands.push_back([0xff, 0xaa, 0x69, 0x88, 0xb5].into());
+        // set data rate to 2Hz
+        commands.push_back([0xff, 0xaa, 0x03, 0x01, 0x00].into());
+        // save config
+        commands.push_back([0xff, 0xaa, 0x00, 0x00, 0x00].into());
+
+        // send_command::spawn_after(Duration::<u64, 1, 1000>::from_ticks(2000)).unwrap();
+
         (
             Shared {
                 // Initialization of shared resources go here
-                buf,
+                read_buf,
+                write_buf,
             },
             Local {
                 // Initialization of local resources go here
+                commands,
                 tx,
                 rx,
             },
-            init::Monotonics(),
+            init::Monotonics(mono),
         )
     }
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        defmt::debug!("In idle");
+        defmt::info!("In idle");
+
         loop {
             continue;
         }
     }
 
-    #[task(shared = [buf])]
+    #[task(local = [commands], shared= [write_buf])]
+    fn send_command(mut ctx: send_command::Context) {
+        if let Some(cmd) = ctx.local.commands.pop_front() {
+            defmt::info!("Sending command: {=[u8]:02x}", cmd);
+            for byte in cmd {
+                ctx.shared
+                    .write_buf
+                    .lock(|write_buf| write_buf.push_back(byte));
+            }
+            send_command::spawn_after(Duration::<u64, 1, 1000>::from_ticks(2000)).unwrap();
+        }
+    }
+
+    #[task(shared = [read_buf])]
     fn process_packet(mut ctx: process_packet::Context) {
         let mut packet: Vec<u8> = alloc::vec![];
 
-        ctx.shared.buf.lock(|buf| {
-            while !buf.is_empty() && buf[0] != 0x55 {
-                buf.pop_front();
+        ctx.shared.read_buf.lock(|read_buf| {
+            while !read_buf.is_empty() && read_buf[0] != 0x55 {
+                read_buf.pop_front();
             }
 
-            // whait untill packet is full
-            if buf.len() < PACKET_SIZE {
+            // wait untill packet is full
+            if read_buf.len() < PACKET_SIZE {
                 return;
             }
 
-            packet = buf.drain(..PACKET_SIZE).collect();
+            packet = read_buf.drain(..PACKET_SIZE).collect();
         });
 
         defmt::debug!("Packet: {=[u8]:02x}", packet);
@@ -162,40 +204,48 @@ mod app {
         }
     }
 
-    #[task(binds = USART2, local = [tx, rx], shared = [buf])]
+    #[task(binds = USART2, local = [tx, rx], shared = [read_buf, write_buf])]
     fn usart2(mut ctx: usart2::Context) {
         let rx = ctx.local.rx;
+        let tx = ctx.local.tx;
 
-        rx.unlisten();
+        // rx.unlisten();
 
-        // if tx.is_tx_empty() {
-        //     defmt::println!("TX interrupt");
-        //     let _ = tx.write(0xFF);
-        //     tx.unlisten();
-        // }
+        let mut start_read = false;
 
-        if rx.is_rx_not_empty() {
+        if tx.is_tx_empty() {
+            ctx.shared.write_buf.lock(|write_buf| {
+                if let Some(byte) = write_buf.pop_front() {
+                    if let Ok(_) = tx.write(byte) {
+                        defmt::debug!("TX Byte value: {:02x}", byte);
+                    }
+                }
+                start_read = write_buf.is_empty();
+            })
+        }
+
+        if rx.is_rx_not_empty() && start_read {
             if let Ok(byte) = rx.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
-                ctx.shared.buf.lock(|buf| {
+                ctx.shared.read_buf.lock(|read_buf| {
                     // wait for header byte
-                    if buf.is_empty() {
+                    if read_buf.is_empty() {
                         if byte == 0x55 {
-                            buf.push_back(byte);
+                            read_buf.push_back(byte);
                         }
                     } else {
-                        buf.push_back(byte);
+                        read_buf.push_back(byte);
                     }
 
                     // message complete
-                    if buf.len() > PACKET_SIZE {
+                    if read_buf.len() > PACKET_SIZE {
                         process_packet::spawn().unwrap();
                     }
                 });
             }
         }
 
-        rx.listen();
+        // rx.listen();
     }
 }
 
