@@ -17,6 +17,7 @@ fn panic() -> ! {
 extern crate alloc;
 
 extern crate nmea_protocol;
+extern crate rpi_json;
 extern crate wit_protocol;
 
 mod spi;
@@ -39,7 +40,8 @@ mod app {
         timer::{Channel, Channel2, ChannelBuilder, PwmHz},
     };
 
-    use nmea_protocol::Nmea;
+    use nmea_protocol::{GpsData, Nmea};
+    use rpi_json::data_types::RegularData;
     use wit_protocol::WIT;
 
     // Setup heap allocator for rust collections
@@ -51,6 +53,7 @@ mod app {
     // Resources
     #[shared]
     struct Shared {
+        reg_data: RegularData,
         read_buf_gps: VecDeque<u8>,
         read_buf_incl: VecDeque<u8>,
         read_buf_rpi: VecDeque<u8>,
@@ -176,9 +179,12 @@ mod app {
         let read_buf_incl: VecDeque<u8> = VecDeque::new();
         let read_buf_rpi: VecDeque<u8> = VecDeque::new();
 
+        let reg_data = RegularData::default();
+
         (
             Shared {
                 // Initialization of shared resources go here
+                reg_data,
                 read_buf_gps,
                 read_buf_incl,
                 read_buf_rpi,
@@ -248,9 +254,11 @@ mod app {
         defmt::info!("Drive configuration finished");
     }
 
-    #[task(binds = USART1, local = [serial_gps], shared = [read_buf_gps])]
+    #[task(binds = USART1, local = [serial_gps], shared = [read_buf_gps, reg_data])]
     fn usart1(mut ctx: usart1::Context) {
         let serial = ctx.local.serial_gps;
+
+        let mut received_data = GpsData::default();
 
         if serial.is_rx_not_empty() {
             if let Ok(byte) = serial.read() {
@@ -276,16 +284,24 @@ mod app {
                         defmt::debug!("Packet: {=[u8]:02x}", data);
                         if let Some(gps_data) = Nmea::parse_nmea(&data) {
                             defmt::info!("{}", gps_data);
+                            received_data = gps_data;
                         }
                     }
                 });
             }
         }
+
+        // update current gps data
+        ctx.shared.reg_data.lock(|rdata| {
+            rdata.gps_data = received_data;
+        });
     }
 
-    #[task(binds = USART2, local = [serial_incl], shared = [read_buf_incl])]
+    #[task(binds = USART2, local = [serial_incl], shared = [read_buf_incl, reg_data])]
     fn usart2(mut ctx: usart2::Context) {
         let serial = ctx.local.serial_incl;
+
+        let mut quat = wit_protocol::SQuat::default();
 
         if serial.is_rx_not_empty() {
             if let Ok(byte) = serial.read() {
@@ -303,35 +319,49 @@ mod app {
                         defmt::debug!("Packet: {=[u8]:02x}", packet);
                         if let Some(wit_data) = WIT::parse_wit(&packet) {
                             defmt::info!("{}", wit_data);
+                            if let wit_protocol::WITData::Quat(q) = wit_data {
+                                quat = q;
+                            }
                         }
                     }
                 });
             }
         }
+
+        // update current inclinometer data
+        ctx.shared.reg_data.lock(|rdata| {
+            rdata.quat = quat;
+        });
     }
 
     #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi])]
-    fn usart3(mut ctx: usart3::Context) {
+    fn usart3(ctx: usart3::Context) {
         let rx = ctx.local.rx_rpi;
 
         if rx.is_rx_not_empty() {
             if let Ok(byte) = rx.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
-                ctx.shared.read_buf_rpi.lock(|read_buf| {
-                    read_buf.push_back(byte);
-                });
+                // TODO: add commands parsing
+                // ctx.shared.read_buf_rpi.lock(|read_buf| {
+                //     read_buf.push_back(byte);
+                // });
             }
         }
     }
 
-    #[task(local = [tx_rpi], shared = [], priority = 3)]
-    async fn send_regualar_data(ctx: send_regualar_data::Context) {
+    #[task(local = [tx_rpi], shared = [reg_data], priority = 3)]
+    async fn send_regualar_data(mut ctx: send_regualar_data::Context) {
         let tx = ctx.local.tx_rpi;
 
         if tx.is_tx_empty() {
-            let write_buf = String::from("test");
+            let mut json_str = String::new();
 
-            for byte in write_buf.as_bytes() {
+            ctx.shared.reg_data.lock(|rdata| {
+                json_str = rdata.to_json().unwrap_or_default();
+                defmt::debug!("JSON data: {}", json_str);
+            });
+
+            for byte in json_str.as_bytes() {
                 if let Ok(_) = tx.write(*byte) {
                     defmt::debug!("TX Byte value: {:02x}", byte);
                 }

@@ -184,7 +184,7 @@ impl SGPSV {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct SQuat {
     pub q0: i16,
     pub q1: i16,

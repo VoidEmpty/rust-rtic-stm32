@@ -10,19 +10,20 @@ pub mod data_types {
     pub use nmea_protocol::GpsData;
     pub use wit_protocol::SQuat;
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Default)]
     pub enum MotorState {
         Running,
+        #[default]
         Stopped,
     }
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Default)]
     pub struct MotorData {
         pub motor_state: MotorState,
         pub motor_angle: f32,
     }
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Default)]
     pub struct RegularData {
         pub gps_data: GpsData,
         pub quat: SQuat,

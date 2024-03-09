@@ -10,8 +10,9 @@ use nom::IResult;
 
 use serde::Serialize;
 
-#[derive(Format, Debug, PartialEq, Serialize)]
+#[derive(Format, Debug, Default, PartialEq, Serialize)]
 pub enum Direction {
+    #[default]
     North,
     South,
     East,
@@ -25,7 +26,7 @@ pub enum DataType {
     Invalid,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct GpsData {
     pub latitude: f32,
     pub lat_dir: Direction,
