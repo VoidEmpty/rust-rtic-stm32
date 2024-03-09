@@ -181,6 +181,8 @@ mod app {
 
         let reg_data = RegularData::default();
 
+        send_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
+
         (
             Shared {
                 // Initialization of shared resources go here
@@ -334,13 +336,13 @@ mod app {
         });
     }
 
-    #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi])]
+    #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi], priority = 4)]
     fn usart3(ctx: usart3::Context) {
         let rx = ctx.local.rx_rpi;
 
         if rx.is_rx_not_empty() {
             if let Ok(byte) = rx.read() {
-                defmt::debug!("RX Byte value: {:02x}", byte);
+                defmt::debug!("RX Byte value: {=u8:a}", byte);
                 // TODO: add commands parsing
                 // ctx.shared.read_buf_rpi.lock(|read_buf| {
                 //     read_buf.push_back(byte);
@@ -353,22 +355,23 @@ mod app {
     async fn send_regualar_data(mut ctx: send_regualar_data::Context) {
         let tx = ctx.local.tx_rpi;
 
-        if tx.is_tx_empty() {
-            let mut json_str = String::new();
+        loop {
+            if tx.is_tx_empty() {
+                let mut json_str = String::new();
 
-            ctx.shared.reg_data.lock(|rdata| {
-                json_str = rdata.to_json().unwrap_or_default();
-                defmt::debug!("JSON data: {}", json_str);
-            });
+                ctx.shared.reg_data.lock(|rdata| {
+                    json_str = rdata.to_json().unwrap_or_default();
+                    defmt::debug!("JSON data: {=str}", json_str.as_str());
+                });
 
-            for byte in json_str.as_bytes() {
-                if let Ok(_) = tx.write(*byte) {
-                    defmt::debug!("TX Byte value: {:02x}", byte);
+                for byte in json_str.as_bytes() {
+                    while let Err(stm32f4xx_hal::nb::Error::WouldBlock) = tx.write(*byte) {
+                        defmt::trace!("TX failed to write, would block");
+                    }
                 }
             }
-        }
 
-        Systick::delay(1.secs()).await;
-        send_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
+            Systick::delay(2.secs()).await;
+        }
     }
 }

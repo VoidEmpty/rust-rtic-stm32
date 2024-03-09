@@ -84,7 +84,7 @@ mod tests {
         assert!(json_string.is_some());
 
         if let Some(s) = json_string {
-            defmt::info!("JSON string: {}", s.as_str())
+            defmt::info!("JSON string: {=str}", s.as_str())
         }
     }
 }
