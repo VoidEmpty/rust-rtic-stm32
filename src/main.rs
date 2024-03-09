@@ -33,8 +33,9 @@ mod app {
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
         gpio::{gpiod, gpiof, Output, PushPull},
-        pac::{SPI3, TIM12, USART1, USART2, USART3},
+        pac::{SPI3, TIM12, TIM2, USART1, USART2, USART3},
         prelude::*,
+        qei::Qei,
         serial::{config::Config, Event, Rx, Serial, Tx},
         spi::*,
         timer::{Channel, Channel2, ChannelBuilder, PwmHz},
@@ -69,8 +70,9 @@ mod app {
     #[local]
     struct Local {
         // TODO split to separate structures
-        _motor_pwm: PwmHz<TIM12, ChannelBuilder<TIM12, 1>>,
-        _motor_dir: gpiof::PF5<Output<PushPull>>,
+        motor_pwm: PwmHz<TIM12, ChannelBuilder<TIM12, 1>>,
+        motor_dir: gpiof::PF5<Output<PushPull>>,
+        encoder: Qei<TIM2>,
         drv_en: gpiof::PF2<Output<PushPull>>,
         cs_motor: gpiod::PD0<Output<PushPull>>,
         spi_motor: Spi<SPI3>,
@@ -133,13 +135,19 @@ mod app {
         let drv_en = gpiof.pf2.into_push_pull_output();
         // add pwm for motor
         let channels = Channel2::new(gpiob.pb15);
-        let mut _motor_pwm = ctx.device.TIM12.pwm_hz(channels, 5.kHz(), &clocks);
-        let max_duty = _motor_pwm.get_max_duty();
-        _motor_pwm.set_duty(Channel::C2, max_duty / 2);
-        _motor_pwm.enable(Channel::C2);
+        let mut motor_pwm = ctx.device.TIM12.pwm_hz(channels, 5.kHz(), &clocks);
+        let max_duty = motor_pwm.get_max_duty();
+        motor_pwm.set_duty(Channel::C2, max_duty / 2);
+        // motor_pwm.enable(Channel::C2);
 
         // dir for motor
-        let _motor_dir = gpiof.pf5.into_push_pull_output();
+        let motor_dir = gpiof.pf5.into_push_pull_output();
+
+        // add encoder interface
+        let encoder_pin1 = gpioa.pa0.into_alternate();
+        let encoder_pin2 = gpioa.pa1.into_alternate();
+
+        let encoder = ctx.device.TIM2.qei((encoder_pin1, encoder_pin2));
 
         // TODO enable on board v2
         spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
@@ -209,8 +217,9 @@ mod app {
             Local {
                 // Initialization of local resources go here
                 drv_en,
-                _motor_pwm,
-                _motor_dir,
+                motor_pwm,
+                motor_dir,
+                encoder,
                 spi_motor,
                 cs_motor,
                 serial_gps,
