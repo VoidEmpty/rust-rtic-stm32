@@ -46,11 +46,20 @@ impl SGyro {
     }
 }
 
-#[derive(Format)]
 pub struct SAngle {
     ang0: u16,
     ang1: u16,
     ang2: u16,
+}
+
+impl defmt::Format for SAngle {
+    fn format(&self, fmt: defmt::Formatter) {
+        let roll = self.ang0 as f32 * ANGLE_FACTOR;
+        let pitch = self.ang1 as f32 * ANGLE_FACTOR;
+        let yaw = self.ang2 as f32 * ANGLE_FACTOR;
+
+        defmt::write!(fmt, "roll = {}, pitch = {}, yaw = {}", roll, pitch, yaw)
+    }
 }
 
 impl SAngle {

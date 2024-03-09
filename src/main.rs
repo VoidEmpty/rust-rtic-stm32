@@ -124,6 +124,10 @@ mod app {
 
         defmt::debug!("Packet: {=[u8]:02x}", packet);
 
+        if packet.len() != PACKET_SIZE {
+            return;
+        }
+
         let mut checksum: u8 = 0;
         let expected_checksum = packet[10];
 
@@ -136,8 +140,11 @@ mod app {
             let data_type = packet[1];
             let data = packet[2..10].to_vec();
 
-            let wit_data = get_wit_data(data_type, data);
-            defmt::info!("{}", wit_data);
+            if let Some(wit_data) = get_wit_data(data_type, data) {
+                defmt::info!("{}", wit_data);
+            } else {
+                defmt::warn!("Couldn't parse packet data!");
+            }
         } else {
             defmt::warn!(
                 "Checksum doesn't match! got: {:02x}, expected: {:02x}",
