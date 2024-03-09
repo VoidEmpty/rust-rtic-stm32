@@ -79,7 +79,6 @@ mod app {
         serial_incl: Serial<USART2>,
         tx_rpi: Tx<USART3>,
         rx_rpi: Rx<USART3>,
-        bracket_balance: u8,
     }
 
     #[init]
@@ -194,7 +193,6 @@ mod app {
 
         // rpi communication
         let send_delay = 2000;
-        let bracket_balance = 0;
         let stop_flag = false;
         let send_data = false;
 
@@ -221,7 +219,6 @@ mod app {
                 serial_incl,
                 tx_rpi,
                 rx_rpi,
-                bracket_balance,
             },
         )
     }
@@ -356,10 +353,9 @@ mod app {
         });
     }
 
-    #[task(binds = USART3, local = [rx_rpi, bracket_balance], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_data, send_delay])]
+    #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_data, send_delay])]
     fn usart3(mut ctx: usart3::Context) {
         defmt::trace!("USART3 interrupt");
-        let bracket_balance = ctx.local.bracket_balance;
         let serial = ctx.local.rx_rpi;
 
         let mut command: Option<Command> = None;
@@ -370,18 +366,12 @@ mod app {
             if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {=u8:a}", byte);
                 ctx.shared.read_buf_rpi.lock(|read_buf| {
-                    match byte {
-                        b'{' => *bracket_balance += 1,
-                        b'}' => *bracket_balance -= 1,
-                        _ => {}
-                    }
-                    read_buf.push_back(byte);
-
-                    if !read_buf.is_empty() && *bracket_balance == 0 {
+                    if !read_buf.is_empty() && byte == b'\0' {
                         let command_json: Vec<u8> = read_buf.drain(..).collect();
                         defmt::info!("Command received: {=[u8]:a}", command_json);
                         command = Command::from_json(command_json.as_slice());
                     }
+                    read_buf.push_back(byte);
                 });
             } else {
                 defmt::error!("RX failed to read");
@@ -444,9 +434,9 @@ mod app {
             ctx.shared.reg_data.lock(|rdata| {
                 json_str = rdata.to_json().unwrap_or_default();
                 json_str.push('\0');
-                defmt::debug!("JSON data: {=str}", json_str);
             });
 
+            defmt::info!("Sending JSON data: {=str}", json_str);
             if ctx.local.tx_rpi.is_tx_empty() {
                 defmt::trace!("TX empty");
                 let _ = ctx.local.tx_rpi.bwrite_all(json_str.as_bytes()).unwrap();
