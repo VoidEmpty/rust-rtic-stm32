@@ -18,7 +18,7 @@
                     "svdFile": "${workspaceFolder}\\STM32F407.svd",
                     "options": {
                         "env": {
-                            "DEFMT_LOG": "Debug" // Trace, Debug, Info, Warn, Error
+                            "DEFMT_LOG": "debug" // trace, debug, info, warn, error
                         }
                     },
                 },

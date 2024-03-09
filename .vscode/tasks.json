@@ -7,12 +7,12 @@
 			"type": "pickString",
 			"options": [
 				// "Trace",
-				"Debug",
-				"Info",
-				"Warn",
-				"Error"
+				"debug",
+				"info",
+				"warn",
+				"error"
 			],
-			"default": "Info",
+			"default": "info",
 		}
 	],
 	"tasks": [
@@ -95,7 +95,7 @@
 			"label": "rust: cargo test",
 			"options": {
 				"env": {
-					"DEFMT_LOG": "Debug"
+					"DEFMT_LOG": "debug"
 				}
 			}
 		},
@@ -109,7 +109,7 @@
 			"label": "rust: debug build",
 			"options": {
 				"env": {
-					"DEFMT_LOG": "Debug"
+					"DEFMT_LOG": "debug"
 				}
 			},
 			"presentation": {
@@ -120,7 +120,30 @@
 				"panel": "dedicated",
 				"showReuseMessage": false,
 				"revealProblems": "never"
+			}
+		},
+		{
+			"type": "cargo",
+			"command": "run",
+			"problemMatcher": [
+				"$rustc"
+			],
+			"label": "rust: cargo run",
+			"options": {
+				"env": {
+					"DEFMT_LOG": "${input:logLevel}"
+				}
 			},
+			"presentation": {
+				"echo": true,
+				"focus": true,
+				"clear": true,
+				"reveal": "always",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"revealProblems": "never"
+			},
+			"isBackground": true
 		}
 	]
 }
