@@ -15,16 +15,21 @@ fn panic() -> ! {
 // add rust collections with custom allocator
 extern crate alloc;
 
+mod wit_protocol;
+
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
 mod app {
     use alloc::collections::VecDeque;
     use alloc::vec::Vec;
+
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
         pac::USART2,
         prelude::*,
         serial::{config::Config, Event, Rx, Serial, Tx},
     };
+
+    use crate::wit_protocol::get_wit_data;
 
     // Setup heap allocator for rust collections
     use embedded_alloc::Heap;
@@ -102,6 +107,8 @@ mod app {
 
     #[task(shared = [buf])]
     fn process_packet(mut ctx: process_packet::Context) {
+        let mut packet: Vec<u8> = alloc::vec![];
+
         ctx.shared.buf.lock(|buf| {
             while !buf.is_empty() && buf[0] != 0x55 {
                 buf.pop_front();
@@ -112,40 +119,32 @@ mod app {
                 return;
             }
 
-            let packet: Vec<u8> = buf.drain(..PACKET_SIZE).collect();
-
-            let mut checksum: u8 = 0;
-            for &byte in &packet[..10] {
-                checksum = checksum.wrapping_add(byte);
-            }
-
-            defmt::info!(
-                "Packet: {=[u8]:02x} ; Current checksum: {:02x}",
-                packet,
-                checksum
-            );
-
-            if checksum == packet[10] {
-                let data_type = packet[1];
-                defmt::info!("Data type: {:02x}", data_type);
-
-                let _data = packet[2..10].to_vec();
-                match data_type {
-                    0x51 => {}
-                    0x52 => {}
-                    0x53 => {}
-                    0x54 => {}
-                    0x55 => {}
-                    0x56 => {}
-                    0x57 => {}
-                    0x58 => {}
-                    0x59 => {}
-                    _ => {}
-                }
-            } else {
-                defmt::warn!("Checksum does not match!");
-            }
+            packet = buf.drain(..PACKET_SIZE).collect();
         });
+
+        defmt::debug!("Packet: {=[u8]:02x}", packet);
+
+        let mut checksum: u8 = 0;
+        let expected_checksum = packet[10];
+
+        // calculate checksum
+        for &byte in &packet[..10] {
+            checksum = checksum.wrapping_add(byte);
+        }
+
+        if checksum == expected_checksum {
+            let data_type = packet[1];
+            let data = packet[2..10].to_vec();
+
+            let wit_data = get_wit_data(data_type, data);
+            defmt::info!("{}", wit_data);
+        } else {
+            defmt::warn!(
+                "Checksum doesn't match! got: {:02x}, expected: {:02x}",
+                checksum,
+                expected_checksum
+            );
+        }
     }
 
     #[task(binds = USART2, local = [tx, rx], shared = [buf])]
