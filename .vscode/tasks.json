@@ -46,7 +46,7 @@
 		},
 		{
 			"type": "shell",
-			"command": "probe-rs erase --chip STM32F407VGTx",
+			"command": "probe-rs erase --chip STM32F407VGTx --allow-erase-all --connect-under-reset",
 			"label": "rust: erase chip",
 			"presentation": {
 				"echo": true,
@@ -54,9 +54,11 @@
 				"clear": true,
 				"reveal": "silent",
 				"panel": "dedicated",
+				"close": true,
 				"showReuseMessage": false,
 				"revealProblems": "never"
-			}
+			},
+			"problemMatcher": []
 		},
 		{
 			"type": "cargo",
