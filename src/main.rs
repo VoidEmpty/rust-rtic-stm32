@@ -66,10 +66,10 @@ mod app {
         commands: VecDeque<Vec<u8>>,
         motor_dir: gpiob::PB6<Output<PushPull>>,
         motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
-        tx1: Tx<USART1>,
-        rx1: Rx<USART1>,
-        tx2: Tx<USART2>,
-        rx2: Rx<USART2>,
+        tx1: Tx<USART2>,
+        rx1: Rx<USART2>,
+        tx2: Tx<USART1>,
+        rx2: Rx<USART1>,
     }
 
     fn spi_send(spi: &mut Spi<SPI3>, mut address: u8, value: u32) {
@@ -147,22 +147,22 @@ mod app {
         let motor_dir = gpiob.pb6.into_push_pull_output();
 
         // create usart serials
-        let tx_pin = gpioa.pa9;
-        let rx_pin = gpioa.pa10;
+        let tx_pin = gpiod.pd5;
+        let rx_pin = gpiod.pd6;
 
-        let mut serial1: Serial<USART1, u8> = Serial::new(
-            ctx.device.USART1,
+        let mut serial1: Serial<USART2, u8> = Serial::new(
+            ctx.device.USART2,
             (tx_pin, rx_pin),
             Config::default().baudrate(9600.bps()),
             &clocks,
         )
         .unwrap();
 
-        let tx_pin = gpioa.pa2;
-        let rx_pin = gpioa.pa3;
+        let tx_pin = gpioa.pa9;
+        let rx_pin = gpioa.pa10;
 
-        let mut serial2: Serial<USART2, u8> = Serial::new(
-            ctx.device.USART2,
+        let mut serial2: Serial<USART1, u8> = Serial::new(
+            ctx.device.USART1,
             (tx_pin, rx_pin),
             Config::default().baudrate(9600.bps()),
             &clocks,
