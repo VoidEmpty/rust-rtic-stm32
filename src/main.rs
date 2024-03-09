@@ -20,12 +20,13 @@ extern crate alloc;
 extern crate nmea_protocol;
 extern crate wit_protocol;
 
+mod spi;
 mod tmc2160;
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2])]
 mod app {
+    use alloc::collections::VecDeque;
     use alloc::vec::Vec;
-    use alloc::{collections::VecDeque, vec};
 
     use rtic_monotonics::systick::Systick;
 
@@ -67,6 +68,7 @@ mod app {
         commands: VecDeque<Vec<u8>>,
         motor_dir: gpiob::PB6<Output<PushPull>>,
         motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
+        drv_en: gpiod::PD11<Output<PushPull>>,
         spi_motor: Spi<SPI3>,
         cs_motor: gpiod::PD0<Output<PushPull>>,
         tx1: Tx<USART2>,
@@ -124,6 +126,7 @@ mod app {
         // add diagnostic leds
         // let led = gpiod.pd13.into_push_pull_output();
 
+        let drv_en = gpiod.pd11.into_push_pull_output();
         // add pwm for motor
         let channels = Channel2::new(gpiob.pb7);
         let mut motor_pwm = ctx.device.TIM4.pwm_hz(channels, 2.kHz(), &clocks);
@@ -131,6 +134,8 @@ mod app {
 
         // dir for motor
         let motor_dir = gpiob.pb6.into_push_pull_output();
+
+        spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
 
         // create usart serials
         let tx_pin = gpiod.pd5;
@@ -187,6 +192,7 @@ mod app {
             Local {
                 // Initialization of local resources go here
                 commands,
+                drv_en,
                 motor_pwm,
                 motor_dir,
                 spi_motor,
@@ -203,42 +209,49 @@ mod app {
     fn idle(_: idle::Context) -> ! {
         defmt::info!("In idle");
 
-        use crate::tmc2160::*;
-
-        let log_error = |(addr, val)| {
-            defmt::error!(
-                "Failed to write value {:04x} to SPI on addres {:08x}",
-                val,
-                addr
-            );
-            // panic!();
-        };
-
-        spi_send::spawn(registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
-        spi_send::spawn(registers::GLOBAL_SCALER, 0).unwrap_or_else(log_error);
-        spi_send::spawn(registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
-        spi_send::spawn(registers::TPOWERDOWN, 10).unwrap_or_else(log_error);
-        spi_send::spawn(registers::TPWMTHRS, 0).unwrap_or_else(log_error);
-        spi_send::spawn(registers::PWMCONF, 0xc4000160).unwrap_or_else(log_error);
-        spi_send::spawn(registers::GCONF, 0x00000005).unwrap_or_else(log_error);
-
         loop {}
     }
 
-    #[task(local = [spi_motor, cs_motor], shared = [write_buf2], priority = 1)]
-    async fn spi_send(ctx: spi_send::Context, mut address: u8, value: u32) {
+    #[task(local = [spi_motor, cs_motor, drv_en], shared = [write_buf2], priority = 2)]
+    async fn spi_write_drv_registers(ctx: spi_write_drv_registers::Context) {
         let spi = ctx.local.spi_motor;
         let cs = ctx.local.cs_motor;
+        let drv_en = ctx.local.drv_en;
 
-        address |= 0x80;
-        let mut buffer = [0; 5];
-        let mut package: Vec<u8> = vec![address];
-        for byte in value.to_le_bytes() {
-            package.push(byte);
-        }
+        use crate::spi::*;
+        use crate::tmc2160::*;
+
+        drv_en.set_high();
         cs.set_low();
-        let _ = spi.transfer(&mut buffer, package.as_mut_slice());
+
+        let log_error = |err| {
+            defmt::error!("SPI Failed to write value on addres, {}", err);
+        };
+
+        spi_send(spi, registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
+        spi_send(spi, registers::GLOBAL_SCALER, 0).unwrap_or_else(log_error);
+        spi_read(spi, registers::CHOPCONF).unwrap_or_default();
+        let _chopconf = spi_read(spi, registers::CHOPCONF).unwrap_or_default();
+        defmt::debug!(
+            "write value = {=u32:#x} ; read value {=u32:#x}",
+            0x110140c3,
+            _chopconf
+        );
+        spi_read(spi, registers::IHOLD_IRUN).unwrap_or_default();
+        spi_send(spi, registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
+        let _irun = spi_read(spi, registers::IHOLD_IRUN).unwrap_or_default();
+        defmt::debug!(
+            "write value = {=u32:#x} ; read value {=u32:#x}",
+            0x000f0909,
+            _irun
+        );
+        spi_send(spi, registers::TPOWERDOWN, 10).unwrap_or_else(log_error);
+        spi_send(spi, registers::TPWMTHRS, 0).unwrap_or_else(log_error);
+        spi_send(spi, registers::PWMCONF, 0xc4000160).unwrap_or_else(log_error);
+        spi_send(spi, registers::GCONF, 0x00000005).unwrap_or_else(log_error);
+
         cs.set_high();
+        drv_en.set_low();
     }
 
     #[task(local = [commands], shared = [write_buf2], priority = 2)]
@@ -255,13 +268,6 @@ mod app {
             }
         }
     }
-
-    // #[task(binds = RTC_WKUP, local = [button, led, motor_dir, motor_pwm])]
-    // fn button_pressed(ctx: button_pressed::Context) {
-    //     ctx.local.button.clear_interrupt_pending_bit();
-    //     ctx.local.led.toggle();
-    //     ctx.local.motor_dir.toggle();
-    // }
 
     #[task(binds = USART1, local = [tx1, rx1], shared = [read_buf1])]
     fn usart1(mut ctx: usart1::Context) {
