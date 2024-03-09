@@ -32,8 +32,8 @@ mod app {
 
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
-        gpio::{gpiob, gpiod, Output, PushPull},
-        pac::{SPI3, TIM4, USART1, USART2, USART3},
+        gpio::{gpiod, gpiof, Output, PushPull},
+        pac::{SPI3, TIM12, USART1, USART2, USART3},
         prelude::*,
         serial::{config::Config, Event, Rx, Serial, Tx},
         spi::*,
@@ -69,9 +69,9 @@ mod app {
     #[local]
     struct Local {
         // TODO split to separate structures
-        _motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
-        _motor_dir: gpiob::PB6<Output<PushPull>>,
-        drv_en: gpiod::PD11<Output<PushPull>>,
+        _motor_pwm: PwmHz<TIM12, ChannelBuilder<TIM12, 1>>,
+        _motor_dir: gpiof::PF5<Output<PushPull>>,
+        drv_en: gpiof::PF2<Output<PushPull>>,
         cs_motor: gpiod::PD0<Output<PushPull>>,
         spi_motor: Spi<SPI3>,
         serial_gps: Serial<USART1>,
@@ -94,9 +94,7 @@ mod app {
 
         // Setup clocks
         let rcc = ctx.device.RCC.constrain();
-
-        // clocls
-        let clocks = rcc.cfgr.freeze();
+        let clocks = rcc.cfgr.sysclk(48.MHz()).freeze();
 
         // Initialize the systick interrupt & obtain the token to prove that we did
         let systick_mono_token = rtic_monotonics::create_systick_token!();
@@ -106,6 +104,7 @@ mod app {
         let gpiob = ctx.device.GPIOB.split();
         let gpiod = ctx.device.GPIOD.split();
         let gpioc = ctx.device.GPIOC.split();
+        let gpiof = ctx.device.GPIOF.split();
 
         // SPI configuration (AF6)
         let sck = gpioc.pc10.into_alternate();
@@ -115,7 +114,7 @@ mod app {
         // create CS instance
         let cs_motor = gpiod.pd0.into_push_pull_output();
 
-        let spi_motor = Spi::new(
+        let mut spi_motor = Spi::new(
             ctx.device.SPI3,
             (sck, miso, mosi),
             Mode {
@@ -126,20 +125,24 @@ mod app {
             &clocks,
         );
 
+        spi_motor.enable(true);
+
         // add diagnostic leds
         // let led = gpiod.pd13.into_push_pull_output();
 
-        let drv_en = gpiod.pd11.into_push_pull_output();
+        let drv_en = gpiof.pf2.into_push_pull_output();
         // add pwm for motor
-        let channels = Channel2::new(gpiob.pb7);
-        let mut _motor_pwm = ctx.device.TIM4.pwm_hz(channels, 2.kHz(), &clocks);
+        let channels = Channel2::new(gpiob.pb15);
+        let mut _motor_pwm = ctx.device.TIM12.pwm_hz(channels, 5.kHz(), &clocks);
+        let max_duty = _motor_pwm.get_max_duty();
+        _motor_pwm.set_duty(Channel::C2, max_duty / 2);
         _motor_pwm.enable(Channel::C2);
 
         // dir for motor
-        let _motor_dir = gpiob.pb6.into_push_pull_output();
+        let _motor_dir = gpiof.pf5.into_push_pull_output();
 
         // TODO enable on board v2
-        // spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
+        spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
 
         // create usart serials
         let tx_pin = gpioa.pa9;
@@ -235,35 +238,54 @@ mod app {
         use crate::spi::*;
         use crate::tmc2160::*;
 
-        drv_en.set_high();
-        cs.set_low();
-
         let log_error = |err| {
             defmt::error!("SPI Failed to write value on addres, {}", err);
             return 0;
         };
 
-        spi_transfer(spi, registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
-        let _chop = spi_transfer(spi, registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::IHOLD_IRUN, 0x00001805).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::TPOWERDOWN, 0x00000000).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::TPWMTHRS, 0x00000000).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::TCOOLTHRS, 0x000FFFFF).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::THIGH, 0x00000000).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::CHOPCONF, 0x16010401).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::COOLCONF, 0x01108000).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::PWMCONF, 0x001C0F40).unwrap_or_else(log_error);
+        // spi_transfer(spi, registers::GCONF, 0x00002186).unwrap_or_else(log_error);
+
+        let a: u32 =
+            spi_transfer(spi, registers::CHOPCONF, 0x110140c3, cs).unwrap_or_else(log_error);
+        defmt::info!(
+            "CHOPCONF: write value = {=u32:#x} ; read value {=u32:#x}",
+            0x110140c3,
+            a
+        );
+        let _chop =
+            spi_transfer(spi, registers::CHOPCONF, 0x110140c3, cs).unwrap_or_else(log_error);
         defmt::info!(
             "CHOPCONF: write value = {=u32:#x} ; read value {=u32:#x}",
             0x110140c3,
             _chop
         );
-        spi_transfer(spi, registers::GLOBAL_SCALER, 0).unwrap_or_else(log_error);
-        spi_transfer(spi, registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
-        let _irun = spi_transfer(spi, registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::GLOBAL_SCALER, 0, cs).unwrap_or_else(log_error);
+        let b = spi_transfer(spi, registers::IHOLD_IRUN, 0x000f1f1f, cs).unwrap_or_else(log_error);
+        defmt::info!(
+            "CHOPCONF: write value = {=u32:#x} ; read value {=u32:#x}",
+            0x110140c3,
+            b
+        );
+        let _irun =
+            spi_transfer(spi, registers::IHOLD_IRUN, 0x000f1f1f, cs).unwrap_or_else(log_error);
         defmt::info!(
             "IHOLD_IRUN: write value = {=u32:#x} ; read value {=u32:#x}",
-            0x000f0909,
+            0x000f1f1f,
             _irun
         );
-        spi_transfer(spi, registers::TPOWERDOWN, 10).unwrap_or_else(log_error);
-        spi_transfer(spi, registers::TPWMTHRS, 0).unwrap_or_else(log_error);
-        spi_transfer(spi, registers::PWMCONF, 0xc4000160).unwrap_or_else(log_error);
-        spi_transfer(spi, registers::GCONF, 0x00000005).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::TPOWERDOWN, 10, cs).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::TPWMTHRS, 0, cs).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::PWMCONF, 0xc4000160, cs).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::GCONF, 0x00000005, cs).unwrap_or_else(log_error);
 
-        cs.set_high();
         drv_en.set_low();
         defmt::info!("Drive configuration finished");
     }
