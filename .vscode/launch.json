@@ -6,6 +6,10 @@
             "request": "launch",
             "name": "Debug",
             "chip": "STM32F407VGTx",
+            "connectUnderReset": true,
+            "flashingConfig": {
+                "flashingEnabled": true,
+            },
             "coreConfigs": [
                 {
                     "coreIndex": 0,
@@ -19,7 +23,8 @@
                     },
                 },
             ],
-            "consoleLogLevel": "Console"
+            "consoleLogLevel": "Console",
+            "preLaunchTask": "rust: cargo build",
         }
     ]
 }

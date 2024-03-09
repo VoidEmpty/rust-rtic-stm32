@@ -1,5 +1,20 @@
 {
 	"version": "2.0.0",
+	"inputs": [
+		{
+			"description": "Log level",
+			"id": "logLevel",
+			"type": "pickString",
+			"options": [
+				// "Trace",
+				"Debug",
+				"Info",
+				"Warn",
+				"Error"
+			],
+			"default": "Info",
+		}
+	],
 	"tasks": [
 		{
 			"type": "cargo",
@@ -9,7 +24,7 @@
 			],
 			"group": {
 				"kind": "build",
-				"isDefault": false
+				"isDefault": true
 			},
 			"label": "rust: cargo embed",
 			"presentation": {
@@ -20,6 +35,11 @@
 				"panel": "dedicated",
 				"showReuseMessage": false,
 				"revealProblems": "never"
+			},
+			"options": {
+				"env": {
+					"DEFMT_LOG": "${input:logLevel}"
+				}
 			}
 		},
 		{
@@ -58,7 +78,12 @@
 				"showReuseMessage": false,
 				"revealProblems": "never"
 			},
-			"problemMatcher": []
+			"problemMatcher": [],
+			"options": {
+				"env": {
+					"DEFMT_LOG": "${input:logLevel}"
+				}
+			}
 		},
 		{
 			"type": "cargo",
@@ -67,7 +92,21 @@
 				"$rustc"
 			],
 			"group": "test",
-			"label": "rust: cargo test"
+			"label": "rust: cargo test",
+			"options": {
+				"env": {
+					"DEFMT_LOG": "Debug"
+				}
+			}
+		},
+		{
+			"type": "cargo",
+			"command": "build",
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "build",
+			"label": "rust: cargo build",
 		}
 	]
 }
