@@ -4,7 +4,7 @@ use defmt::Format;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::alpha1;
-use nom::number::complete::float;
+use nom::number::complete::{double, float};
 use nom::sequence::tuple;
 use nom::IResult;
 
@@ -32,7 +32,7 @@ pub struct GpsData {
     pub lat_dir: Direction,
     pub longitude: f32,
     pub lon_dir: Direction,
-    pub time: f32,
+    pub time: f64,
 }
 
 impl Format for GpsData {
@@ -94,7 +94,7 @@ impl Nmea {
 
     fn parse_nmea_gga(input: &[u8]) -> IResult<&[u8], GpsData> {
         // get time
-        let (input, (time, _)) = tuple((float, tag(",")))(input)?;
+        let (input, (time, _)) = tuple((double, tag(",")))(input)?;
         // get location
         let (input, (latitude, lat_dir)) = Self::parse_nmea_coord(input)?;
         let (input, (longitude, lon_dir)) = Self::parse_nmea_coord(input)?;
@@ -116,7 +116,7 @@ impl Nmea {
         let (input, (latitude, lat_dir)) = Self::parse_nmea_coord(input)?;
         let (input, (longitude, lon_dir)) = Self::parse_nmea_coord(input)?;
         // get time
-        let (input, (time, _)) = tuple((float, tag(",")))(input)?;
+        let (input, (time, _)) = tuple((double, tag(",")))(input)?;
 
         Ok((
             input,

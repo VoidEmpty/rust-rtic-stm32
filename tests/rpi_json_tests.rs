@@ -56,7 +56,7 @@ mod tests {
             lat_dir: Direction::North,
             longitude: 03740.69200,
             lon_dir: Direction::East,
-            time: 123035.00,
+            time: 123035.546,
         };
 
         defmt::info!("GPS data to send: {}", gps_data);
