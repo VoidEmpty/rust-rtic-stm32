@@ -22,7 +22,6 @@ extern crate wit_protocol;
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
-
     use alloc::collections::VecDeque;
     use alloc::vec::Vec;
 
@@ -30,11 +29,13 @@ mod app {
 
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
-        gpio::{gpioa, gpiob, gpiod, Edge, ExtiPin, Input, Output, PushPull},
+        gpio::{gpioa, gpiod, Edge, ExtiPin, Input, Output, PushPull},
+        pac::TIM2,
         pac::USART1,
         pac::USART2,
         prelude::*,
         serial::{config::Config, Event, Rx, Serial, Tx},
+        timer::ChannelBuilder,
     };
 
     use nmea_protocol::Nmea;
@@ -56,11 +57,15 @@ mod app {
 
     const PACKET_SIZE: usize = 11;
 
+    type PWM = stm32f4xx_hal::timer::PwmHz<TIM2, ChannelBuilder<TIM2, 0>>;
+
     #[local]
     struct Local {
         commands: VecDeque<Vec<u8>>,
         button: gpioa::PA0<Input>,
         led: gpiod::PD13<Output<PushPull>>,
+        motor_dir: gpioa::PA14<Output<PushPull>>,
+        motor_pwm: PWM,
         tx1: Tx<USART1>,
         rx1: Rx<USART1>,
         tx2: Tx<USART2>,
@@ -68,7 +73,7 @@ mod app {
     }
 
     #[init]
-    fn init(ctx: init::Context) -> (Shared, Local) {
+    fn init(mut ctx: init::Context) -> (Shared, Local) {
         defmt::debug!("Init started");
 
         // Initialize the allocator
@@ -110,6 +115,13 @@ mod app {
 
         // add diagnostic led
         let led = gpiod.pd13.into_push_pull_output();
+
+        // add pwm for motor
+        let pwm_pin = gpioa.pa15.into_alternate();
+        let pwm_channel = ChannelBuilder::new(pwm_pin);
+        let motor_pwm: PWM = ctx.device.TIM2.pwm_hz(pwm_channel, 1600.Hz(), &clocks);
+        // dir for motor
+        let motor_dir = gpioa.pa14.into_push_pull_output();
 
         // create usart serials
         let tx_pin = gpioa.pa9;
@@ -168,6 +180,8 @@ mod app {
                 // Initialization of local resources go here
                 commands,
                 button,
+                motor_pwm,
+                motor_dir,
                 led,
                 tx1,
                 rx1,
@@ -199,10 +213,11 @@ mod app {
         }
     }
 
-    #[task(binds = EXTI0, local = [button, led])]
+    #[task(binds = EXTI0, local = [button, led, motor_dir, motor_pwm])]
     fn button_pressed(ctx: button_pressed::Context) {
         ctx.local.button.clear_interrupt_pending_bit();
         ctx.local.led.toggle();
+        ctx.local.motor_dir.toggle();
     }
 
     #[task(binds = USART1, local = [tx1, rx1], shared = [read_buf1])]
@@ -227,12 +242,12 @@ mod app {
                     let end = ['\r', '\n'].map(|x| x as u8);
 
                     if [last1, last2] == end {
-                            // message complete
-                            // call process function
-                            let data: Vec<u8> = read_buf.drain(..).collect();
-                            defmt::debug!("Packet: {=[u8]:02x}", data);
-                            if let Some(gps_data) = Nmea::parse_nmea(&data) {
-                                defmt::info!("{}", gps_data);
+                        // message complete
+                        // call process function
+                        let data: Vec<u8> = read_buf.drain(..).collect();
+                        defmt::debug!("Packet: {=[u8]:02x}", data);
+                        if let Some(gps_data) = Nmea::parse_nmea(&data) {
+                            defmt::info!("{}", gps_data);
                         }
                     }
                 });
