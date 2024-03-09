@@ -24,10 +24,7 @@ mod app {
     use alloc::collections::VecDeque;
     use alloc::vec::Vec;
 
-    use systick_monotonic::{fugit::Duration, Systick};
-
-    #[monotonic(binds = SysTick, default = true)]
-    type MonoTimer = Systick<1000>;
+    use rtic_monotonics::systick::Systick;
 
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
@@ -74,7 +71,10 @@ mod app {
 
         // Setup clocks
         let rcc = ctx.device.RCC.constrain();
-        let mono = Systick::new(ctx.core.SYST, 36_000_000);
+
+        // Initialize the systick interrupt & obtain the token to prove that we did
+        let systick_mono_token = rtic_monotonics::create_systick_token!();
+        Systick::start(ctx.core.SYST, 36_000_000, systick_mono_token); // default STM32F303 clock-rate is 36MHz
 
         let clocks = rcc
             .cfgr
@@ -131,7 +131,6 @@ mod app {
                 tx,
                 rx,
             },
-            init::Monotonics(mono),
         )
     }
 
@@ -139,9 +138,7 @@ mod app {
     fn idle(_: idle::Context) -> ! {
         defmt::info!("In idle");
 
-        loop {
-            continue;
-        }
+        loop {}
     }
 
     #[task(local = [commands], shared= [write_buf])]
