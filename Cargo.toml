@@ -42,6 +42,14 @@ name = "inclinometer"
 test = false
 bench = false
 
+[[test]]
+name = "wit_parser_tests"
+harness = false
+
+[[test]]
+name = "nmea_parser_tests"
+harness = false
+
 [profile.dev]
 debug = true            # symbols are nice and they don't increase the size on Flash
 opt-level = 0           # no optimisation for better debug experience
