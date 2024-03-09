@@ -14,18 +14,12 @@ fn panic() -> ! {
 
 // add rust collections with custom allocator
 extern crate alloc;
-use alloc::vec::Vec;
-
-// quaternion
-struct _Quat(Vec<u8>);
 
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
 mod app {
-    // Use HAL crate for stm32f407
-    // use cortex_m::singleton;
-    // use heapless::spsc::{Consumer, Producer, Queue};
-    use alloc::vec;
+    use alloc::collections::VecDeque;
     use alloc::vec::Vec;
+    // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
         pac::USART2,
         prelude::*,
@@ -40,17 +34,13 @@ mod app {
 
     #[shared]
     struct Shared {
-        buf: Vec<u8>,
+        buf: VecDeque<u8>,
     }
 
-    // const QUEUE_LEN: usize = 8;
+    const PACKET_SIZE: usize = 11;
 
     #[local]
     struct Local {
-        // tx_prod: Producer<'static, u8, QUEUE_LEN>,
-        // tx_con: Consumer<'static, u8, QUEUE_LEN>,
-        // rx_prod: Producer<'static, u8, QUEUE_LEN>,
-        // rx_con: Consumer<'static, u8, QUEUE_LEN>,
         tx: Tx<USART2>,
         rx: Rx<USART2>,
     }
@@ -86,10 +76,8 @@ mod app {
         serial.listen(Event::Rxne);
 
         let (tx, rx) = serial.split();
-        // let rx_queue = singleton!(:Queue<u8, QUEUE_LEN> = Queue::new()).unwrap();
-        // let tx_queue = singleton!(:Queue<u8, QUEUE_LEN> = Queue::new()).unwrap();
 
-        let buf: Vec<u8> = vec![];
+        let buf: VecDeque<u8> = VecDeque::new();
         (
             Shared {
                 // Initialization of shared resources go here
@@ -97,10 +85,6 @@ mod app {
             },
             Local {
                 // Initialization of local resources go here
-                // tx_con,
-                // tx_prod,
-                // rx_con,
-                // rx_prod,
                 tx,
                 rx,
             },
@@ -117,34 +101,55 @@ mod app {
     }
 
     #[task(shared = [buf])]
-    fn print_quat(mut ctx: print_quat::Context) {
-        // todo!();
+    fn process_packet(mut ctx: process_packet::Context) {
         ctx.shared.buf.lock(|buf| {
-            if buf[0] == 0x55 {
-                let checksum = 0x55
-                    + buf[1]
-                    + buf[2]
-                    + buf[3]
-                    + buf[4]
-                    + buf[5]
-                    + buf[6]
-                    + buf[7]
-                    + buf[8]
-                    + buf[9];
+            while !buf.is_empty() && buf[0] != 0x55 {
+                buf.pop_front();
+            }
 
-                if checksum == buf[10] {
-                    if buf[1] == 0x59 {
-                        // Quaternion construction
-                    }
+            // whait untill packet is full
+            if buf.len() < PACKET_SIZE {
+                return;
+            }
+
+            let packet: Vec<u8> = buf.drain(..PACKET_SIZE).collect();
+
+            let mut checksum: u8 = 0;
+            for &byte in &packet[..10] {
+                checksum = checksum.wrapping_add(byte);
+            }
+
+            defmt::info!(
+                "Packet: {=[u8]:02x} ; Current checksum: {:02x}",
+                packet,
+                checksum
+            );
+
+            if checksum == packet[10] {
+                let data_type = packet[1];
+                defmt::info!("Data type: {:02x}", data_type);
+
+                let _data = packet[2..10].to_vec();
+                match data_type {
+                    0x51 => {}
+                    0x52 => {}
+                    0x53 => {}
+                    0x54 => {}
+                    0x55 => {}
+                    0x56 => {}
+                    0x57 => {}
+                    0x58 => {}
+                    0x59 => {}
+                    _ => {}
                 }
+            } else {
+                defmt::warn!("Checksum does not match!");
             }
         });
     }
 
     #[task(binds = USART2, local = [tx, rx], shared = [buf])]
     fn usart2(mut ctx: usart2::Context) {
-        defmt::debug!("USART2 interrupt");
-        // let tx = ctx.local.tx;
         let rx = ctx.local.rx;
 
         rx.unlisten();
@@ -157,21 +162,20 @@ mod app {
 
         if rx.is_rx_not_empty() {
             if let Ok(byte) = rx.read() {
-                defmt::info!("Byte value: {:x}", byte);
-
-                // wait for header byte
+                defmt::debug!("RX Byte value: {:02x}", byte);
                 ctx.shared.buf.lock(|buf| {
+                    // wait for header byte
                     if buf.is_empty() {
                         if byte == 0x55 {
-                            buf.push(byte);
+                            buf.push_back(byte);
                         }
                     } else {
-                        buf.push(byte);
+                        buf.push_back(byte);
                     }
 
-                    // message complete, send to quat print
-                    if buf.len() == 11 {
-                        print_quat::spawn().unwrap();
+                    // message complete
+                    if buf.len() > PACKET_SIZE {
+                        process_packet::spawn().unwrap();
                     }
                 });
             }
