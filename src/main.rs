@@ -14,16 +14,18 @@ fn panic() -> ! {
 
 // add rust collections with custom allocator
 extern crate alloc;
-#[allow(unused_imports)]
-use alloc::vec;
-#[allow(unused_imports)]
 use alloc::vec::Vec;
 
-#[rtic::app(device = stm32f4xx_hal::pac)]
+// quaternion
+struct _Quat(Vec<u8>);
+
+#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
 mod app {
     // Use HAL crate for stm32f407
     // use cortex_m::singleton;
     // use heapless::spsc::{Consumer, Producer, Queue};
+    use alloc::vec;
+    use alloc::vec::Vec;
     use stm32f4xx_hal::{
         pac::USART2,
         prelude::*,
@@ -37,7 +39,9 @@ mod app {
     static HEAP: Heap = Heap::empty();
 
     #[shared]
-    struct Shared {}
+    struct Shared {
+        buf: Vec<u8>,
+    }
 
     // const QUEUE_LEN: usize = 8;
 
@@ -80,15 +84,16 @@ mod app {
         .unwrap();
 
         serial.listen(Event::Rxne);
-        // serial.listen(Event::Idle);
 
         let (tx, rx) = serial.split();
         // let rx_queue = singleton!(:Queue<u8, QUEUE_LEN> = Queue::new()).unwrap();
         // let tx_queue = singleton!(:Queue<u8, QUEUE_LEN> = Queue::new()).unwrap();
 
+        let buf: Vec<u8> = vec![];
         (
             Shared {
                 // Initialization of shared resources go here
+                buf,
             },
             Local {
                 // Initialization of local resources go here
@@ -111,10 +116,33 @@ mod app {
         }
     }
 
+    #[task(shared = [buf])]
+    fn print_quat(mut ctx: print_quat::Context) {
+        // todo!();
+        ctx.shared.buf.lock(|buf| {
+            if buf[0] == 0x55 {
+                let checksum = 0x55
+                    + buf[1]
+                    + buf[2]
+                    + buf[3]
+                    + buf[4]
+                    + buf[5]
+                    + buf[6]
+                    + buf[7]
+                    + buf[8]
+                    + buf[9];
 
+                if checksum == buf[10] {
+                    if buf[1] == 0x59 {
+                        // Quaternion construction
+                    }
+                }
+            }
+        });
+    }
 
-    #[task(binds = USART2, local = [tx, rx])]
-    fn usart2(ctx: usart2::Context) {
+    #[task(binds = USART2, local = [tx, rx], shared = [buf])]
+    fn usart2(mut ctx: usart2::Context) {
         defmt::debug!("USART2 interrupt");
         // let tx = ctx.local.tx;
         let rx = ctx.local.rx;
@@ -130,6 +158,22 @@ mod app {
         if rx.is_rx_not_empty() {
             if let Ok(byte) = rx.read() {
                 defmt::info!("Byte value: {:x}", byte);
+
+                // wait for header byte
+                ctx.shared.buf.lock(|buf| {
+                    if buf.is_empty() {
+                        if byte == 0x55 {
+                            buf.push(byte);
+                        }
+                    } else {
+                        buf.push(byte);
+                    }
+
+                    // message complete, send to quat print
+                    if buf.len() == 11 {
+                        print_quat::spawn().unwrap();
+                    }
+                });
             }
         }
 
