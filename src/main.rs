@@ -254,16 +254,6 @@ mod app {
             0
         };
 
-        // spi_transfer(spi, registers::IHOLD_IRUN, 0x00001805).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::TPOWERDOWN, 0x00000000).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::TPWMTHRS, 0x00000000).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::TCOOLTHRS, 0x000FFFFF).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::THIGH, 0x00000000).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::CHOPCONF, 0x16010401).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::COOLCONF, 0x01108000).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::PWMCONF, 0x001C0F40).unwrap_or_else(log_error);
-        // spi_transfer(spi, registers::GCONF, 0x00002186).unwrap_or_else(log_error);
-
         let a: u32 =
             spi_transfer(spi, registers::CHOPCONF, 0x110140c3, cs).unwrap_or_else(log_error);
         defmt::info!(
@@ -313,12 +303,12 @@ mod app {
 
             match count.cmp(&target_count) {
                 core::cmp::Ordering::Equal => {
-                ctx.shared.reg_data.lock(|data| {
-                    data.motor_data.motor_angle = target_angle;
-                    data.motor_data.motor_state = rpi_json::data_types::MotorState::Stopped;
-                });
-                ctx.local.motor_pwm.disable(Channel::C2);
-                break;
+                    ctx.shared.reg_data.lock(|data| {
+                        data.motor_data.motor_angle = target_angle;
+                        data.motor_data.motor_state = rpi_json::data_types::MotorState::Stopped;
+                    });
+                    ctx.local.motor_pwm.disable(Channel::C2);
+                    break;
                 }
                 core::cmp::Ordering::Greater => ctx.local.motor_dir.set_high(),
                 core::cmp::Ordering::Less => ctx.local.motor_dir.set_low(),
@@ -441,14 +431,14 @@ mod app {
 
         if let Some(command) = command {
             match command.cmd {
-                // stop command
                 0 => {
+                    defmt::info!("Stop command recieved");
                     if send_data {
                         ctx.shared.stop_flag.lock(|flag| *flag = true)
                     }
                 }
-                // start command
                 1 => {
+                    defmt::info!("Start command recieved");
                     // update delay
                     if let Some(CommandData::Delay { delay_time }) = command.cmd_data {
                         ctx.shared.send_delay.lock(|delay| *delay = delay_time)
@@ -462,6 +452,7 @@ mod app {
                     }
                 }
                 2 => {
+                    defmt::info!("Rotate motor on angle command recieved");
                     if let Some(CommandData::Angle { angle }) = command.cmd_data {
                         rotate_motor::spawn(angle).expect("Failed to spawn task rotate_motor!");
                     } else {
@@ -477,6 +468,7 @@ mod app {
 
     #[task(local = [tx_rpi], shared = [reg_data, send_delay, stop_flag, send_data], priority = 1)]
     async fn update_regualar_data(mut ctx: update_regualar_data::Context) {
+        defmt::info!("Start sending data");
         ctx.shared.send_data.lock(|flag| *flag = true);
 
         loop {
@@ -484,6 +476,7 @@ mod app {
             ctx.shared.stop_flag.lock(|flag| stop_flag = *flag);
 
             if stop_flag {
+                defmt::info!("Stop sending data");
                 ctx.shared.send_data.lock(|flag| *flag = false);
                 ctx.shared.stop_flag.lock(|flag| *flag = false);
                 return;
