@@ -35,7 +35,7 @@ mod app {
         gpio::{gpiob, gpiod, Output, PushPull},
         pac::{SPI3, TIM4, USART1, USART2, USART3},
         prelude::*,
-        serial::{config::Config, Event, Rx, Serial, Tx},
+        serial::{config::Config, Event, Serial},
         spi::*,
         timer::{Channel, Channel2, ChannelBuilder, PwmHz},
     };
@@ -57,6 +57,7 @@ mod app {
         read_buf_gps: VecDeque<u8>,
         read_buf_incl: VecDeque<u8>,
         read_buf_rpi: VecDeque<u8>,
+        write_buf_rpi: VecDeque<u8>,
     }
 
     const PACKET_SIZE: usize = 11;
@@ -70,18 +71,17 @@ mod app {
         spi_motor: Spi<SPI3>,
         serial_gps: Serial<USART1>,
         serial_incl: Serial<USART2>,
-        tx_rpi: Tx<USART3>,
-        rx_rpi: Rx<USART3>,
+        serial_rpi: Serial<USART3>,
     }
 
     #[init]
     fn init(ctx: init::Context) -> (Shared, Local) {
-        defmt::debug!("Init started");
+        defmt::info!("Init started");
 
         // Initialize the allocator
         {
             use core::mem::MaybeUninit;
-            const HEAP_SIZE: usize = 1024;
+            const HEAP_SIZE: usize = 2048;
             static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
             unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
         }
@@ -89,12 +89,12 @@ mod app {
         // Setup clocks
         let rcc = ctx.device.RCC.constrain();
 
-        // Initialize the systick interrupt & obtain the token to prove that we did
-        let systick_mono_token = rtic_monotonics::create_systick_token!();
-        Systick::start(ctx.core.SYST, 168_000_000, systick_mono_token); // default STM32F407 clock-rate is 16MHz
-
         // clocls
         let clocks = rcc.cfgr.freeze();
+
+        // Initialize the systick interrupt & obtain the token to prove that we did
+        let systick_mono_token = rtic_monotonics::create_systick_token!();
+        Systick::start(ctx.core.SYST, clocks.sysclk().raw(), systick_mono_token);
 
         let gpioa = ctx.device.GPIOA.split();
         let gpiob = ctx.device.GPIOB.split();
@@ -172,16 +172,16 @@ mod app {
         serial_gps.listen(Event::Rxne);
         serial_incl.listen(Event::Rxne);
         serial_rpi.listen(Event::Rxne);
-
-        let (tx_rpi, rx_rpi) = serial_rpi.split();
+        serial_rpi.listen(Event::Txe);
 
         let read_buf_gps: VecDeque<u8> = VecDeque::new();
         let read_buf_incl: VecDeque<u8> = VecDeque::new();
         let read_buf_rpi: VecDeque<u8> = VecDeque::new();
+        let write_buf_rpi: VecDeque<u8> = VecDeque::new();
 
         let reg_data = RegularData::default();
 
-        send_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
+        update_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
 
         (
             Shared {
@@ -190,6 +190,7 @@ mod app {
                 read_buf_gps,
                 read_buf_incl,
                 read_buf_rpi,
+                write_buf_rpi,
             },
             Local {
                 // Initialization of local resources go here
@@ -200,8 +201,7 @@ mod app {
                 cs_motor,
                 serial_gps,
                 serial_incl,
-                tx_rpi,
-                rx_rpi,
+                serial_rpi,
             },
         )
     }
@@ -213,7 +213,7 @@ mod app {
         loop {}
     }
 
-    #[task(local = [spi_motor, cs_motor, drv_en], priority = 4)]
+    #[task(local = [spi_motor, cs_motor, drv_en], priority = 3)]
     async fn spi_write_drv_registers(ctx: spi_write_drv_registers::Context) {
         defmt::info!("Drive configuration");
         let spi = ctx.local.spi_motor;
@@ -336,40 +336,66 @@ mod app {
         });
     }
 
-    #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi], priority = 4)]
-    fn usart3(ctx: usart3::Context) {
-        let rx = ctx.local.rx_rpi;
+    #[task(binds = USART3, local = [serial_rpi], shared = [read_buf_rpi, write_buf_rpi])]
+    fn usart3(mut ctx: usart3::Context) {
+        defmt::trace!("USART3 interrupt");
+        let serial = ctx.local.serial_rpi;
 
-        if rx.is_rx_not_empty() {
-            if let Ok(byte) = rx.read() {
+        serial.unlisten(Event::Rxne);
+
+        if serial.is_tx_empty() {
+            defmt::trace!("TX empty");
+            ctx.shared.write_buf_rpi.lock(|write_buf| {
+                if let Some(byte) = write_buf.pop_front() {
+                    if let Err(_) = serial.write(byte) {
+                        defmt::error!("TX failed to write byte {=u8:a}", byte);
+                    } else {
+                        defmt::debug!("TX byte {=u8:a}", byte);
+                    }
+                } else {
+                    defmt::warn!("write_buf_rpi is empty!!!");
+                }
+            });
+            serial.unlisten(Event::Txe);
+        }
+
+        if serial.is_rx_not_empty() {
+            defmt::trace!("RX not empty");
+            if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {=u8:a}", byte);
                 // TODO: add commands parsing
                 // ctx.shared.read_buf_rpi.lock(|read_buf| {
                 //     read_buf.push_back(byte);
                 // });
+            } else {
+                defmt::error!("RX failed to read");
             }
+            serial.listen(Event::Txe);
         }
+
+        serial.listen(Event::Rxne);
     }
 
-    #[task(local = [tx_rpi], shared = [reg_data], priority = 3)]
-    async fn send_regualar_data(mut ctx: send_regualar_data::Context) {
-        let tx = ctx.local.tx_rpi;
-
+    #[task(shared = [write_buf_rpi, reg_data], priority = 1)]
+    async fn update_regualar_data(mut ctx: update_regualar_data::Context) {
         loop {
-            if tx.is_tx_empty() {
-                let mut json_str = String::new();
+            let mut json_str = String::new();
 
-                ctx.shared.reg_data.lock(|rdata| {
-                    json_str = rdata.to_json().unwrap_or_default();
-                    defmt::debug!("JSON data: {=str}", json_str.as_str());
-                });
+            // convert to json
+            defmt::trace!("JSON conversion started");
+            ctx.shared.reg_data.lock(|rdata| {
+                json_str = rdata.to_json().unwrap_or_default();
+                defmt::debug!("JSON data: {=str}", json_str);
+            });
 
-                for byte in json_str.as_bytes() {
-                    while let Err(stm32f4xx_hal::nb::Error::WouldBlock) = tx.write(*byte) {
-                        defmt::trace!("TX failed to write, would block");
-                    }
-                }
-            }
+            // replace buffer with new info
+            defmt::trace!("Buff copy started");
+            ctx.shared.write_buf_rpi.lock(|write_buf| {
+                let bytes = json_str.as_bytes();
+                *write_buf = VecDeque::with_capacity(bytes.len());
+                write_buf.extend(json_str.as_bytes());
+            });
+            defmt::trace!("Buff copy ended");
 
             Systick::delay(2.secs()).await;
         }

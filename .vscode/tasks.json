@@ -6,7 +6,7 @@
 			"id": "logLevel",
 			"type": "pickString",
 			"options": [
-				// "Trace",
+				"trace",
 				"debug",
 				"info",
 				"warn",
@@ -129,6 +129,9 @@
 				"$rustc"
 			],
 			"label": "rust: cargo run",
+			"args": [
+				"--release"
+			],
 			"options": {
 				"env": {
 					"DEFMT_LOG": "${input:logLevel}"
