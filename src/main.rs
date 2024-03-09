@@ -20,7 +20,7 @@ extern crate alloc;
 extern crate nmea_protocol;
 extern crate wit_protocol;
 
-#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
+#[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
 
     use alloc::collections::VecDeque;
@@ -30,6 +30,7 @@ mod app {
 
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
+        gpio::{gpioa, gpiob, gpiod, Edge, ExtiPin, Input, Output, PushPull},
         pac::USART1,
         pac::USART2,
         prelude::*,
@@ -58,6 +59,8 @@ mod app {
     #[local]
     struct Local {
         commands: VecDeque<Vec<u8>>,
+        button: gpioa::PA0<Input>,
+        led: gpiod::PD13<Output<PushPull>>,
         tx1: Tx<USART1>,
         rx1: Rx<USART1>,
         tx2: Tx<USART2>,
@@ -83,6 +86,10 @@ mod app {
         let systick_mono_token = rtic_monotonics::create_systick_token!();
         Systick::start(ctx.core.SYST, 168_000_000, systick_mono_token); // default STM32F407 clock-rate is 16MHz
 
+        // syscfg
+        let mut syscfg = ctx.device.SYSCFG.constrain();
+
+        // clocls
         let clocks = rcc
             .cfgr
             .use_hse(8.MHz())
@@ -93,7 +100,18 @@ mod app {
             .freeze();
 
         let gpioa = ctx.device.GPIOA.split();
+        let gpiod = ctx.device.GPIOD.split();
 
+        // create button
+        let mut button = gpioa.pa0.into_pull_up_input();
+        button.make_interrupt_source(&mut syscfg);
+        button.enable_interrupt(&mut ctx.device.EXTI);
+        button.trigger_on_edge(&mut ctx.device.EXTI, Edge::Falling);
+
+        // add diagnostic led
+        let led = gpiod.pd13.into_push_pull_output();
+
+        // create usart serials
         let tx_pin = gpioa.pa9;
         let rx_pin = gpioa.pa10;
 
@@ -149,6 +167,8 @@ mod app {
             Local {
                 // Initialization of local resources go here
                 commands,
+                button,
+                led,
                 tx1,
                 rx1,
                 tx2,
@@ -177,6 +197,12 @@ mod app {
                 Systick::delay(1000.millis()).await;
             }
         }
+    }
+
+    #[task(binds = EXTI0, local = [button, led])]
+    fn button_pressed(ctx: button_pressed::Context) {
+        ctx.local.button.clear_interrupt_pending_bit();
+        ctx.local.led.toggle();
     }
 
     #[task(binds = USART1, local = [tx1, rx1], shared = [read_buf1])]
