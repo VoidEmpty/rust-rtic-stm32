@@ -134,7 +134,8 @@ mod app {
         // dir for motor
         let _motor_dir = gpiob.pb6.into_push_pull_output();
 
-        spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
+        // TODO enable on board v2
+        // spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
 
         // create usart serials
         let tx_pin = gpiod.pd5;
@@ -226,7 +227,7 @@ mod app {
 
         let log_error = |err| {
             defmt::error!("SPI Failed to write value on addres, {}", err);
-            return 273;
+            return 0;
         };
 
         spi_transfer(spi, registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
