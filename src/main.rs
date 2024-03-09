@@ -1,3 +1,4 @@
+#![warn(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
 #![no_main]
 #![no_std]
 
@@ -15,6 +16,7 @@ fn panic() -> ! {
 // add rust collections with custom allocator
 extern crate alloc;
 
+mod parser;
 mod wit_protocol;
 
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [SPI1])]
@@ -29,7 +31,7 @@ mod app {
         serial::{config::Config, Event, Rx, Serial, Tx},
     };
 
-    use crate::wit_protocol::get_wit_data;
+    use crate::wit_protocol::{get_wit_data, WITData};
 
     // Setup heap allocator for rust collections
     use embedded_alloc::Heap;
@@ -63,7 +65,15 @@ mod app {
         }
 
         let rcc = ctx.device.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(25.MHz()).freeze();
+        let clocks = rcc
+            .cfgr
+            .use_hse(8.MHz())
+            .sysclk(84.MHz())
+            .hclk(84.MHz())
+            .require_pll48clk()
+            .pclk2(21.MHz())
+            .freeze();
+
         let gpioa = ctx.device.GPIOA.split();
 
         // Configure serial
@@ -140,10 +150,8 @@ mod app {
             let data_type = packet[1];
             let data = packet[2..10].to_vec();
 
-            if let Some(wit_data) = get_wit_data(data_type, data) {
+            if let WITData::Angle(wit_data) = get_wit_data(data_type, data.as_slice()) {
                 defmt::info!("{}", wit_data);
-            } else {
-                defmt::warn!("Couldn't parse packet data!");
             }
         } else {
             defmt::warn!(
@@ -191,13 +199,12 @@ mod app {
     }
 }
 
-#[cfg(test)]
-#[defmt_test::tests]
-mod unit_tests {
-    use defmt::assert;
-
-    #[test]
-    fn it_works() {
-        assert!(true)
-    }
-}
+// #[cfg(test)]
+// #[defmt_test::tests]
+// mod unit_tests {
+//     use defmt::assert;
+//     #[test]
+//     fn it_works() {
+//         assert!(true)
+//     }
+// }
