@@ -234,7 +234,11 @@ mod app {
     fn idle(_: idle::Context) -> ! {
         defmt::info!("In idle");
 
-        loop {}
+        loop {
+            // rotate_motor::spawn(60.0).unwrap();
+            // rotate_motor::spawn(30.0).unwrap();
+            // rotate_motor::spawn(180.0).unwrap();
+        }
     }
 
     #[task(local = [spi_motor, cs_motor, drv_en], priority = 3)]
@@ -297,6 +301,41 @@ mod app {
 
         drv_en.set_low();
         defmt::info!("Drive configuration finished");
+    }
+
+    #[task(local = [encoder, motor_pwm, motor_dir], shared = [reg_data], priority = 3)]
+    async fn rotate_motor(mut ctx: rotate_motor::Context, target_angle: f32) {
+        defmt::info!("Rotating motor on angle {}", target_angle);
+        let target_count = (target_angle * 1000.0 / 360.0) as u32;
+
+        let count = ctx.local.encoder.count();
+        if count < target_count {
+            ctx.local.motor_dir.set_high();
+        }
+        if count < target_count {
+            ctx.local.motor_dir.set_low();
+        } else {
+            return;
+        }
+
+        ctx.local.motor_pwm.enable(Channel::C2);
+        loop {
+            let count = ctx.local.encoder.count();
+            defmt::debug!("Current count = {}, target count = {}", count, target_count);
+
+            if count == target_count {
+                ctx.shared.reg_data.lock(|data| {
+                    data.motor_data.motor_angle = target_angle;
+                    data.motor_data.motor_state = rpi_json::data_types::MotorState::Stopped;
+                });
+                ctx.local.motor_pwm.disable(Channel::C2);
+                break;
+            }
+            ctx.shared.reg_data.lock(|data| {
+                data.motor_data.motor_angle = count as f32 * (360.0 / 1000.0);
+                data.motor_data.motor_state = rpi_json::data_types::MotorState::Running;
+            });
+        }
     }
 
     #[task(binds = USART1, local = [serial_gps], shared = [read_buf_gps, reg_data])]
