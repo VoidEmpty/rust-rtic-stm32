@@ -62,7 +62,6 @@ mod app {
         read_buf_gps: VecDeque<u8>,
         read_buf_incl: VecDeque<u8>,
         read_buf_rpi: VecDeque<u8>,
-        write_buf_rpi: VecDeque<u8>,
     }
 
     const PACKET_SIZE: usize = 11;
@@ -185,11 +184,8 @@ mod app {
         let read_buf_gps: VecDeque<u8> = VecDeque::new();
         let read_buf_incl: VecDeque<u8> = VecDeque::new();
         let read_buf_rpi: VecDeque<u8> = VecDeque::new();
-        let write_buf_rpi: VecDeque<u8> = VecDeque::new();
 
         let reg_data = RegularData::default();
-
-        // update_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
 
         // rpi communication
         let send_delay = 2000;
@@ -206,7 +202,6 @@ mod app {
                 read_buf_gps,
                 read_buf_incl,
                 read_buf_rpi,
-                write_buf_rpi,
             },
             Local {
                 // Initialization of local resources go here
@@ -353,7 +348,7 @@ mod app {
         });
     }
 
-    #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_data, send_delay])]
+    #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi, stop_flag, send_data, send_delay])]
     fn usart3(mut ctx: usart3::Context) {
         defmt::trace!("USART3 interrupt");
         let serial = ctx.local.rx_rpi;
@@ -410,7 +405,7 @@ mod app {
         }
     }
 
-    #[task(local = [tx_rpi], shared = [write_buf_rpi, reg_data, send_delay, stop_flag, send_data], priority = 1)]
+    #[task(local = [tx_rpi], shared = [reg_data, send_delay, stop_flag, send_data], priority = 1)]
     async fn update_regualar_data(mut ctx: update_regualar_data::Context) {
         ctx.shared.send_data.lock(|flag| *flag = true);
 
