@@ -183,8 +183,6 @@ mod app {
     fn usart1(mut ctx: usart1::Context) {
         let rx = ctx.local.rx1;
 
-        let mut start_read = false;
-
         if rx.is_rx_not_empty() {
             if let Ok(byte) = rx.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
@@ -203,17 +201,12 @@ mod app {
                     let end = ['\r', '\n'].map(|x| x as u8);
 
                     if [last1, last2] == end {
-                        if !start_read {
-                            read_buf.clear();
-                            start_read = true;
-                        } else {
                             // message complete
                             // call process function
                             let data: Vec<u8> = read_buf.drain(..).collect();
                             defmt::debug!("Packet: {=[u8]:02x}", data);
                             if let Some(gps_data) = Nmea::parse_nmea(&data) {
                                 defmt::info!("{}", gps_data);
-                            }
                         }
                     }
                 });

@@ -25,9 +25,9 @@ pub struct SAcc {
 
 impl SAcc {
     fn new(data: &[u8]) -> Self {
-        let (data, acc0) = take_i16_le(data).unwrap();
-        let (data, acc1) = take_i16_le(data).unwrap();
-        let (_, acc2) = take_i16_le(data).unwrap();
+        let (data, acc0) = take_i16_le(data).unwrap_or_default();
+        let (data, acc1) = take_i16_le(data).unwrap_or_default();
+        let (_, acc2) = take_i16_le(data).unwrap_or_default();
         Self { acc0, acc1, acc2 }
     }
 }
@@ -56,9 +56,9 @@ pub struct SGyro {
 
 impl SGyro {
     pub fn new(data: &[u8]) -> Self {
-        let (data, w0) = take_i16_le(data).unwrap();
-        let (data, w1) = take_i16_le(data).unwrap();
-        let (_, w2) = take_i16_le(data).unwrap();
+        let (data, w0) = take_i16_le(data).unwrap_or_default();
+        let (data, w1) = take_i16_le(data).unwrap_or_default();
+        let (_, w2) = take_i16_le(data).unwrap_or_default();
         Self { w0, w1, w2 }
     }
 }
@@ -97,9 +97,9 @@ impl defmt::Format for SAngle {
 
 impl SAngle {
     pub fn new(data: &[u8]) -> Self {
-        let (data, ang0) = take_i16_le(data).unwrap();
-        let (data, ang1) = take_i16_le(data).unwrap();
-        let (_, ang2) = take_i16_le(data).unwrap();
+        let (data, ang0) = take_i16_le(data).unwrap_or_default();
+        let (data, ang1) = take_i16_le(data).unwrap_or_default();
+        let (_, ang2) = take_i16_le(data).unwrap_or_default();
         Self { ang0, ang1, ang2 }
     }
 }
@@ -113,9 +113,9 @@ pub struct SMag {
 
 impl SMag {
     pub fn new(data: &[u8]) -> Self {
-        let (data, h0) = take_i16_le(data).unwrap();
-        let (data, h1) = take_i16_le(data).unwrap();
-        let (_, h2) = take_i16_le(data).unwrap();
+        let (data, h0) = take_i16_le(data).unwrap_or_default();
+        let (data, h1) = take_i16_le(data).unwrap_or_default();
+        let (_, h2) = take_i16_le(data).unwrap_or_default();
         Self { h0, h1, h2 }
     }
 }
@@ -130,10 +130,10 @@ pub struct SDStatus {
 
 impl SDStatus {
     pub fn new(data: &[u8]) -> Self {
-        let (data, s0) = take_i16_le(data).unwrap();
-        let (data, s1) = take_i16_le(data).unwrap();
-        let (data, s2) = take_i16_le(data).unwrap();
-        let (_, s3) = take_i16_le(data).unwrap();
+        let (data, s0) = take_i16_le(data).unwrap_or_default();
+        let (data, s1) = take_i16_le(data).unwrap_or_default();
+        let (data, s2) = take_i16_le(data).unwrap_or_default();
+        let (_, s3) = take_i16_le(data).unwrap_or_default();
         Self { s0, s1, s2, s3 }
     }
 }
@@ -146,8 +146,8 @@ pub struct SPress {
 
 impl SPress {
     pub fn new(data: &[u8]) -> Self {
-        let (data, l_pres) = take_i32_le(data).unwrap();
-        let (_, l_alt) = take_i32_le(data).unwrap();
+        let (data, l_pres) = take_i32_le(data).unwrap_or_default();
+        let (_, l_alt) = take_i32_le(data).unwrap_or_default();
         Self { l_pres, l_alt }
     }
 }
@@ -160,8 +160,8 @@ pub struct SLonLat {
 
 impl SLonLat {
     pub fn new(data: &[u8]) -> Self {
-        let (data, l_lon) = take_i32_le(data).unwrap();
-        let (_, l_lat) = take_i32_le(data).unwrap();
+        let (data, l_lon) = take_i32_le(data).unwrap_or_default();
+        let (_, l_lat) = take_i32_le(data).unwrap_or_default();
         Self { l_lon, l_lat }
     }
 }
@@ -176,9 +176,9 @@ pub struct SGPSV {
 
 impl SGPSV {
     pub fn new(data: &[u8]) -> Self {
-        let (data, s_gpsheight) = take_i16_le(data).unwrap();
-        let (data, s_gpsyaw) = take_i16_le(data).unwrap();
-        let (_, l_gpsvelocity) = take_i32_le(data).unwrap();
+        let (data, s_gpsheight) = take_i16_le(data).unwrap_or_default();
+        let (data, s_gpsyaw) = take_i16_le(data).unwrap_or_default();
+        let (_, l_gpsvelocity) = take_i32_le(data).unwrap_or_default();
         Self {
             s_gpsheight,
             s_gpsyaw,
@@ -196,10 +196,10 @@ pub struct SQuat {
 
 impl SQuat {
     pub fn new(data: &[u8]) -> Self {
-        let (data, q0) = take_i16_le(data).unwrap();
-        let (data, q1) = take_i16_le(data).unwrap();
-        let (data, q2) = take_i16_le(data).unwrap();
-        let (_, q3) = take_i16_le(data).unwrap();
+        let (data, q0) = take_i16_le(data).unwrap_or_default();
+        let (data, q1) = take_i16_le(data).unwrap_or_default();
+        let (data, q2) = take_i16_le(data).unwrap_or_default();
+        let (_, q3) = take_i16_le(data).unwrap_or_default();
         Self { q0, q1, q2, q3 }
     }
 }

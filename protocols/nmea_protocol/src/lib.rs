@@ -136,20 +136,23 @@ impl Nmea {
     }
 
     pub fn parse_nmea(input: &[u8]) -> Option<GpsData> {
-        //? don't need this info
-        let (input, _) = Self::parse_satellite_type(input).unwrap();
+        if let Ok((input, _)) = Self::parse_satellite_type(input) {
+            if let Ok((input, data_type)) = Self::parse_nmea_data_type(input) {
+                let result = match data_type {
+                    DataType::GGA => Self::parse_nmea_gga(input).ok(),
+                    DataType::GLL => Self::parse_nmea_gll(input).ok(),
+                    DataType::Invalid => {
+                        return None;
+                    }
+                };
 
-        let (input, data_type) = Self::parse_nmea_data_type(input).unwrap();
-
-        let (_, data) = match data_type {
-            DataType::GGA => Self::parse_nmea_gga(input).unwrap(),
-            DataType::GLL => Self::parse_nmea_gll(input).unwrap(),
-            DataType::Invalid => {
-                return None;
+                if let Some((_, gps_data)) = result {
+                    return Some(gps_data);
+                }
             }
-        };
+        }
 
-        Some(data)
+        None
     }
 }
 
