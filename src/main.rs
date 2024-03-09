@@ -468,8 +468,15 @@ mod app {
                             .expect("Failed to spawn task send_regualar_data!");
                     }
                 }
-                // TODO motor command
-                2 => todo!(),
+                2 => {
+                    if let Some(CommandData::Angle { angle }) = command.cmd_data {
+                        rotate_motor::spawn(angle).expect("Failed to spawn task rotate_motor!");
+                    } else {
+                        defmt::warn!(
+                            "Recieved incorrect data for command 'rotate motor', expected angle"
+                        );
+                    }
+                }
                 _ => defmt::warn!("Received unknown command: {=u8}", command.cmd),
             }
         }
