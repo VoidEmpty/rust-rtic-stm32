@@ -42,6 +42,10 @@ name = "inclinometer"
 test = false
 bench = false
 
+[lints.clippy]
+std_instead_of_alloc = "deny"
+std_instead_of_core = "deny"
+
 [[test]]
 name = "wit_parser_tests"
 harness = false

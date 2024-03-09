@@ -8,6 +8,13 @@ name = "wit_protocol"
 test = false
 bench = false
 
+[lints.rust]
+dead_code = "allow"
+
+[lints.clippy]
+std_instead_of_alloc = "deny"
+std_instead_of_core = "deny"
+
 [dependencies]
 # parser combinators library
 nom = { version = "7.1.3", default-features = false, features = ["alloc"] }

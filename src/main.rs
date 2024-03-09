@@ -1,7 +1,6 @@
-#![warn(clippy::std_instead_of_alloc, clippy::std_instead_of_core)]
+#![feature(type_alias_impl_trait)]
 #![no_main]
 #![no_std]
-#![feature(type_alias_impl_trait)]
 
 // RTT and defmt logger setup
 use defmt_rtt as _;
