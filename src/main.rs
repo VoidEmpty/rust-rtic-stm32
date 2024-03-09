@@ -214,6 +214,7 @@ mod app {
 
     #[task(local = [spi_motor, cs_motor, drv_en], shared = [write_buf2], priority = 2)]
     async fn spi_write_drv_registers(ctx: spi_write_drv_registers::Context) {
+        defmt::info!("Drive configuration");
         let spi = ctx.local.spi_motor;
         let cs = ctx.local.cs_motor;
         let drv_en = ctx.local.drv_en;
@@ -226,32 +227,32 @@ mod app {
 
         let log_error = |err| {
             defmt::error!("SPI Failed to write value on addres, {}", err);
+            return 273;
         };
 
-        spi_send(spi, registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
-        spi_send(spi, registers::GLOBAL_SCALER, 0).unwrap_or_else(log_error);
-        spi_read(spi, registers::CHOPCONF).unwrap_or_default();
-        let _chopconf = spi_read(spi, registers::CHOPCONF).unwrap_or_default();
-        defmt::debug!(
-            "write value = {=u32:#x} ; read value {=u32:#x}",
+        spi_transfer(spi, registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
+        let _chop = spi_transfer(spi, registers::CHOPCONF, 0x110140c3).unwrap_or_else(log_error);
+        defmt::info!(
+            "CHOPCONF: write value = {=u32:#x} ; read value {=u32:#x}",
             0x110140c3,
-            _chopconf
+            _chop
         );
-        spi_read(spi, registers::IHOLD_IRUN).unwrap_or_default();
-        spi_send(spi, registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
-        let _irun = spi_read(spi, registers::IHOLD_IRUN).unwrap_or_default();
-        defmt::debug!(
-            "write value = {=u32:#x} ; read value {=u32:#x}",
+        spi_transfer(spi, registers::GLOBAL_SCALER, 0).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
+        let _irun = spi_transfer(spi, registers::IHOLD_IRUN, 0x000f0909).unwrap_or_else(log_error);
+        defmt::info!(
+            "IHOLD_IRUN: write value = {=u32:#x} ; read value {=u32:#x}",
             0x000f0909,
             _irun
         );
-        spi_send(spi, registers::TPOWERDOWN, 10).unwrap_or_else(log_error);
-        spi_send(spi, registers::TPWMTHRS, 0).unwrap_or_else(log_error);
-        spi_send(spi, registers::PWMCONF, 0xc4000160).unwrap_or_else(log_error);
-        spi_send(spi, registers::GCONF, 0x00000005).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::TPOWERDOWN, 10).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::TPWMTHRS, 0).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::PWMCONF, 0xc4000160).unwrap_or_else(log_error);
+        spi_transfer(spi, registers::GCONF, 0x00000005).unwrap_or_else(log_error);
 
         cs.set_high();
         drv_en.set_low();
+        defmt::info!("Drive configuration finished");
     }
 
     #[task(local = [commands], shared = [write_buf2], priority = 2)]
