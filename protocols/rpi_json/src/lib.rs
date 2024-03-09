@@ -27,10 +27,8 @@ pub mod commands {
     #[derive(Deserialize)]
     #[serde(untagged)]
     pub enum CommandData {
-        #[serde(rename(deserialize = "delay_time"))]
-        Delay(u32),
-        #[serde(rename(deserialize = "angle"))]
-        Angle(f32),
+        Delay { delay_time: u32 },
+        Angle { angle: f32 },
     }
 }
 

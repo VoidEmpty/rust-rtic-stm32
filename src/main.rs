@@ -55,6 +55,7 @@ mod app {
     #[shared]
     struct Shared {
         // TODO split to separate structures
+        send_data: bool,
         stop_flag: bool,
         send_delay: u32,
         reg_data: RegularData,
@@ -177,7 +178,6 @@ mod app {
 
         serial_gps.listen(Event::Rxne);
         serial_incl.listen(Event::Rxne);
-        serial_rpi.listen(Event::Rxne);
         serial_rpi.listen(Event::Txe);
 
         let read_buf_gps: VecDeque<u8> = VecDeque::new();
@@ -193,12 +193,14 @@ mod app {
         let send_delay = 2000;
         let bracket_balance = 0;
         let stop_flag = false;
+        let send_data = false;
 
         (
             Shared {
                 // Initialization of shared resources go here
                 send_delay,
                 stop_flag,
+                send_data,
                 reg_data,
                 read_buf_gps,
                 read_buf_incl,
@@ -350,29 +352,31 @@ mod app {
         });
     }
 
-    #[task(binds = USART3, local = [serial_rpi, bracket_balance], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_delay])]
+    #[task(binds = USART3, local = [serial_rpi, bracket_balance], shared = [read_buf_rpi, write_buf_rpi, stop_flag, send_data, send_delay])]
     fn usart3(mut ctx: usart3::Context) {
         defmt::trace!("USART3 interrupt");
-        let mut bracket_balance = *ctx.local.bracket_balance;
+        let bracket_balance = ctx.local.bracket_balance;
         let serial = ctx.local.serial_rpi;
-
-        serial.unlisten(Event::Rxne);
 
         if serial.is_tx_empty() {
             defmt::trace!("TX empty");
             ctx.shared.write_buf_rpi.lock(|write_buf| {
-                if let Some(byte) = write_buf.pop_front() {
-                    if let Err(_) = serial.write(byte) {
-                        defmt::error!("TX failed to write byte {=u8:a}", byte);
-                    } else {
-                        defmt::debug!("TX byte {=u8:a}", byte);
-                    }
-                } else {
-                    defmt::warn!("write_buf_rpi is empty!!!");
-                }
+                // if let Some(byte) = write_buf.pop_front() {
+                //     if let Err(_) = serial.write(byte) {
+                //         defmt::error!("TX failed to write byte {=u8:a}", byte);
+                //     } else {
+                //         defmt::debug!("TX byte {=u8:a}", byte);
+                //     }
+                // } else {
+                //     defmt::warn!("write_buf_rpi is empty!!!");
+                // }
+                let buf: Vec<u8> = write_buf.drain(..).collect();
+                let _ = serial.bwrite_all(buf.as_slice()).unwrap();
             });
             serial.unlisten(Event::Txe);
+            serial.listen(Event::Rxne);
         }
+
         let mut command: Option<Command> = None;
 
         if serial.is_rx_not_empty() {
@@ -382,14 +386,15 @@ mod app {
                 defmt::debug!("RX Byte value: {=u8:a}", byte);
                 ctx.shared.read_buf_rpi.lock(|read_buf| {
                     match byte {
-                        b'{' => bracket_balance += 1,
-                        b'}' => bracket_balance -= 1,
+                        b'{' => *bracket_balance += 1,
+                        b'}' => *bracket_balance -= 1,
                         _ => {}
                     }
                     read_buf.push_back(byte);
 
-                    if !read_buf.is_empty() && bracket_balance == 0 {
+                    if !read_buf.is_empty() && *bracket_balance == 0 {
                         let command_json: Vec<u8> = read_buf.drain(..).collect();
+                        defmt::info!("Command received: {=[u8]:a}", command_json);
                         command = Command::from_json(command_json.as_slice());
                     }
                 });
@@ -397,38 +402,52 @@ mod app {
                 defmt::error!("RX failed to read");
             }
             serial.listen(Event::Txe);
+            serial.unlisten(Event::Rxne);
         }
+
+        let mut send_data = false;
+        ctx.shared.send_data.lock(|flag| send_data = *flag);
 
         if let Some(command) = command {
             match command.cmd {
                 // stop command
-                0 => ctx.shared.stop_flag.lock(|flag| *flag = true),
+                0 => {
+                    if send_data {
+                        ctx.shared.stop_flag.lock(|flag| *flag = true)
+                    }
+                }
                 // start command
-                1 => ctx.shared.send_delay.lock(|delay| {
-                    if let Some(CommandData::Delay(new_delay)) = command.cmd_data {
-                        *delay = new_delay;
+                1 => {
+                    // update delay
+                    if let Some(CommandData::Delay { delay_time }) = command.cmd_data {
+                        ctx.shared.send_delay.lock(|delay| *delay = delay_time)
                     } else {
                         defmt::warn!("Recieved incorrect data for command 'start', expected delay");
                     }
-                    update_regualar_data::spawn()
-                        .expect("Failed to spawn task send_regualar_data!");
-                }),
+                    // start task if stopped
+                    if !send_data {
+                        update_regualar_data::spawn()
+                            .expect("Failed to spawn task send_regualar_data!");
+                    }
+                }
                 // TODO motor command
                 2 => todo!(),
                 _ => defmt::warn!("Received unknown command: {=u8}", command.cmd),
             }
         }
-
-        serial.listen(Event::Rxne);
     }
 
-    #[task(shared = [write_buf_rpi, reg_data, send_delay, stop_flag], priority = 1)]
+    #[task(shared = [write_buf_rpi, reg_data, send_delay, stop_flag, send_data], priority = 1)]
     async fn update_regualar_data(mut ctx: update_regualar_data::Context) {
+        ctx.shared.send_data.lock(|flag| *flag = true);
+
         loop {
             let mut stop_flag = false;
             ctx.shared.stop_flag.lock(|flag| stop_flag = *flag);
 
             if stop_flag {
+                ctx.shared.send_data.lock(|flag| *flag = false);
+                ctx.shared.stop_flag.lock(|flag| *flag = false);
                 return;
             }
 
@@ -439,20 +458,17 @@ mod app {
             ctx.shared.send_delay.lock(|delay| send_delay = *delay);
 
             // convert to json
-            defmt::trace!("JSON conversion started");
             ctx.shared.reg_data.lock(|rdata| {
                 json_str = rdata.to_json().unwrap_or_default();
                 defmt::debug!("JSON data: {=str}", json_str);
             });
 
             // replace buffer with new info
-            defmt::trace!("Buff copy started");
             ctx.shared.write_buf_rpi.lock(|write_buf| {
                 let bytes = json_str.as_bytes();
                 *write_buf = VecDeque::with_capacity(bytes.len());
                 write_buf.extend(json_str.as_bytes());
             });
-            defmt::trace!("Buff copy ended");
 
             Systick::delay(send_delay.millis()).await;
         }
