@@ -21,6 +21,7 @@ extern crate alloc;
 
 // See https://crates.io/crates/defmt-test/0.3.0 for more documentation (e.g. about the 'state'
 // feature)
+#[allow(unused_imports)]
 #[defmt_test::tests]
 mod tests {
     #[init]
@@ -38,13 +39,38 @@ mod tests {
             unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
         }
     }
-    use defmt::assert;
+
+    #[allow(unused_imports)]
+    use defmt::{assert, assert_eq, assert_ne};
 
     extern crate nmea_protocol;
-    use nmea_protocol::Nmea;
+    use nmea_protocol::{Direction, Nmea};
 
     #[test]
-    fn it_works() {
-        assert!(true)
+    fn parse_gga() {
+        let data = b"$GNGGA,102030.000,5546.95900,N,03740.69200,E,1,08,2.0,142.0,M,0.0,M,,*";
+        if let Some(gps_data) = Nmea::parse_nmea(data) {
+            defmt::info!("{}", gps_data);
+            assert_eq!(gps_data.latitude, 5546.959);
+            assert!(gps_data.lat_dir == Direction::North);
+            assert_eq!(gps_data.longitude, 3740.692);
+            assert!(gps_data.lon_dir == Direction::East);
+        } else {
+            assert!(false, "Failed to parse GGA data!");
+        }
+    }
+
+    #[test]
+    fn parse_gll() {
+        let data = b"$GNGLL,5546.95900,N,03740.69200,E,102030.000,A,A*";
+        if let Some(gps_data) = Nmea::parse_nmea(data) {
+            defmt::info!("{}", gps_data);
+            assert_eq!(gps_data.latitude, 5546.959);
+            assert!(gps_data.lat_dir == Direction::North);
+            assert_eq!(gps_data.longitude, 3740.692);
+            assert!(gps_data.lon_dir == Direction::East);
+        } else {
+            assert!(false, "Failed to parse GGA data!");
+        }
     }
 }

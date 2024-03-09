@@ -15,7 +15,7 @@ use nom::number::complete::float;
 use nom::sequence::tuple;
 use nom::IResult;
 
-#[derive(Format)]
+#[derive(Format, Debug, PartialEq)]
 pub enum Direction {
     North,
     South,

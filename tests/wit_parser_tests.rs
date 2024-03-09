@@ -21,7 +21,7 @@ extern crate alloc;
 
 // See https://crates.io/crates/defmt-test/0.3.0 for more documentation (e.g. about the 'state'
 // feature)
-#[cfg(test)]
+#[allow(unused_imports)]
 #[defmt_test::tests]
 mod tests {
     #[init]
@@ -39,9 +39,12 @@ mod tests {
             unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
         }
     }
-    use defmt::assert;
+
+    #[allow(unused_imports)]
+    use defmt::{assert, assert_eq, assert_ne};
 
     extern crate wit_protocol;
+    #[allow(unused_imports)]
     use wit_protocol::WIT;
 
     #[test]
