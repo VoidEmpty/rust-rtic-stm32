@@ -24,5 +24,5 @@ pub fn spi_transfer(
     let mut res = [0; 4];
     res.copy_from_slice(&buffer[1..]);
     let val = u32::from_le_bytes(res);
-    return Ok(val);
+    Ok(val)
 }

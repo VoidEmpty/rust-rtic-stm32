@@ -124,7 +124,7 @@ mod app {
                 polarity: Polarity::IdleLow,
                 phase: Phase::CaptureOnFirstTransition,
             },
-            1.MHz().into(),
+            1.MHz(),
             &clocks,
         );
 
@@ -235,8 +235,6 @@ mod app {
     fn idle(_: idle::Context) -> ! {
         defmt::info!("In idle");
         // let _ = rotate_motor::spawn(90.0);
-        // rotate_motor::spawn(30.0).unnwrap();
-        // rotate_motor::spawn(30.0).unnwrap();
 
         loop {}
     }
@@ -253,7 +251,7 @@ mod app {
 
         let log_error = |err| {
             defmt::error!("SPI Failed to write value on addres, {}", err);
-            return 0;
+            0
         };
 
         // spi_transfer(spi, registers::IHOLD_IRUN, 0x00001805).unwrap_or_else(log_error);
@@ -313,17 +311,17 @@ mod app {
             let count = ctx.local.encoder.count();
             defmt::debug!("Current count = {}, target count = {}", count, target_count);
 
-            if count == target_count {
+            match count.cmp(&target_count) {
+                core::cmp::Ordering::Equal => {
                 ctx.shared.reg_data.lock(|data| {
                     data.motor_data.motor_angle = target_angle;
                     data.motor_data.motor_state = rpi_json::data_types::MotorState::Stopped;
                 });
                 ctx.local.motor_pwm.disable(Channel::C2);
                 break;
-            } else if count < target_count {
-                ctx.local.motor_dir.set_high();
-            } else if count > target_count {
-                ctx.local.motor_dir.set_low();
+                }
+                core::cmp::Ordering::Greater => ctx.local.motor_dir.set_high(),
+                core::cmp::Ordering::Less => ctx.local.motor_dir.set_low(),
             }
 
             ctx.shared.reg_data.lock(|data| {
@@ -506,7 +504,7 @@ mod app {
             defmt::info!("Sending JSON data: {=str}", json_str);
             if ctx.local.tx_rpi.is_tx_empty() {
                 defmt::trace!("TX empty");
-                let _ = ctx.local.tx_rpi.bwrite_all(json_str.as_bytes()).unwrap();
+                ctx.local.tx_rpi.bwrite_all(json_str.as_bytes()).unwrap();
             }
 
             Systick::delay(send_delay.millis()).await;
