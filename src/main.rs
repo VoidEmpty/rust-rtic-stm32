@@ -24,19 +24,15 @@ mod tmc2160;
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2])]
 mod app {
-    use alloc::collections::VecDeque;
     use alloc::vec::Vec;
+    use alloc::{collections::VecDeque, string::String};
 
     use rtic_monotonics::systick::Systick;
 
-    use stm32f4xx_hal::gpio::gpiod;
-    use stm32f4xx_hal::pac::SPI3;
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
-        gpio::{gpiob, Output, PushPull},
-        pac::TIM4,
-        pac::USART1,
-        pac::USART2,
+        gpio::{gpiob, gpiod, Output, PushPull},
+        pac::{SPI3, TIM4, USART1, USART2, USART3},
         prelude::*,
         serial::{config::Config, Event, Rx, Serial, Tx},
         spi::*,
@@ -55,25 +51,24 @@ mod app {
     // Resources
     #[shared]
     struct Shared {
-        read_buf1: VecDeque<u8>,
-        read_buf2: VecDeque<u8>,
-        write_buf2: VecDeque<u8>,
+        read_buf_gps: VecDeque<u8>,
+        read_buf_incl: VecDeque<u8>,
+        read_buf_rpi: VecDeque<u8>,
     }
 
     const PACKET_SIZE: usize = 11;
 
     #[local]
     struct Local {
-        commands: VecDeque<Vec<u8>>,
-        _motor_dir: gpiob::PB6<Output<PushPull>>,
         _motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
+        _motor_dir: gpiob::PB6<Output<PushPull>>,
         drv_en: gpiod::PD11<Output<PushPull>>,
-        spi_motor: Spi<SPI3>,
         cs_motor: gpiod::PD0<Output<PushPull>>,
-        tx1: Tx<USART2>,
-        rx1: Rx<USART2>,
-        tx2: Tx<USART1>,
-        rx2: Rx<USART1>,
+        spi_motor: Spi<SPI3>,
+        serial_gps: Serial<USART1>,
+        serial_incl: Serial<USART2>,
+        tx_rpi: Tx<USART3>,
+        rx_rpi: Rx<USART3>,
     }
 
     #[init]
@@ -138,21 +133,10 @@ mod app {
         // spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
 
         // create usart serials
-        let tx_pin = gpiod.pd5;
-        let rx_pin = gpiod.pd6;
-
-        let mut serial1: Serial<USART2, u8> = Serial::new(
-            ctx.device.USART2,
-            (tx_pin, rx_pin),
-            Config::default().baudrate(9600.bps()),
-            &clocks,
-        )
-        .unwrap();
-
         let tx_pin = gpioa.pa9;
         let rx_pin = gpioa.pa10;
 
-        let mut serial2: Serial<USART1, u8> = Serial::new(
+        let mut serial_gps: Serial<USART1, u8> = Serial::new(
             ctx.device.USART1,
             (tx_pin, rx_pin),
             Config::default().baudrate(9600.bps()),
@@ -160,47 +144,56 @@ mod app {
         )
         .unwrap();
 
-        serial1.listen(Event::Rxne);
-        serial2.listen(Event::Rxne);
+        let tx_pin = gpiod.pd5;
+        let rx_pin = gpiod.pd6;
 
-        let (tx1, rx1) = serial1.split();
-        let (tx2, rx2) = serial2.split();
+        let mut serial_incl: Serial<USART2, u8> = Serial::new(
+            ctx.device.USART2,
+            (tx_pin, rx_pin),
+            Config::default().baudrate(9600.bps()),
+            &clocks,
+        )
+        .unwrap();
 
-        let read_buf1: VecDeque<u8> = VecDeque::new();
-        let read_buf2: VecDeque<u8> = VecDeque::new();
-        let write_buf2: VecDeque<u8> = VecDeque::new();
+        let tx_pin = gpiob.pb10;
+        let rx_pin = gpiob.pb11;
 
-        // Configure inclinometer
-        let mut commands = VecDeque::new();
+        let mut serial_rpi: Serial<USART3, u8> = Serial::new(
+            ctx.device.USART3,
+            (tx_pin, rx_pin),
+            Config::default().baudrate(9600.bps()),
+            &clocks,
+        )
+        .unwrap();
 
-        // special unlock/enable command??? (for some reason not documented anywhere)
-        commands.push_back([0xFF, 0xF0, 0xF0, 0xF0, 0xF0].into());
-        // unlock config
-        commands.push_back([0xff, 0xaa, 0x69, 0x88, 0xb5].into());
-        // set data rate to 2Hz
-        commands.push_back([0xff, 0xaa, 0x03, 0x01, 0x00].into());
-        // save config
-        commands.push_back([0xff, 0xaa, 0x00, 0x00, 0x00].into());
+        serial_gps.listen(Event::Rxne);
+        serial_incl.listen(Event::Rxne);
+        serial_rpi.listen(Event::Rxne);
+
+        let (tx_rpi, rx_rpi) = serial_rpi.split();
+
+        let read_buf_gps: VecDeque<u8> = VecDeque::new();
+        let read_buf_incl: VecDeque<u8> = VecDeque::new();
+        let read_buf_rpi: VecDeque<u8> = VecDeque::new();
 
         (
             Shared {
                 // Initialization of shared resources go here
-                read_buf1,
-                read_buf2,
-                write_buf2,
+                read_buf_gps,
+                read_buf_incl,
+                read_buf_rpi,
             },
             Local {
                 // Initialization of local resources go here
-                commands,
                 drv_en,
                 _motor_pwm,
                 _motor_dir,
                 spi_motor,
                 cs_motor,
-                tx1,
-                rx1,
-                tx2,
-                rx2,
+                serial_gps,
+                serial_incl,
+                tx_rpi,
+                rx_rpi,
             },
         )
     }
@@ -212,7 +205,7 @@ mod app {
         loop {}
     }
 
-    #[task(local = [spi_motor, cs_motor, drv_en], shared = [write_buf2], priority = 2)]
+    #[task(local = [spi_motor, cs_motor, drv_en], priority = 4)]
     async fn spi_write_drv_registers(ctx: spi_write_drv_registers::Context) {
         defmt::info!("Drive configuration");
         let spi = ctx.local.spi_motor;
@@ -255,29 +248,14 @@ mod app {
         defmt::info!("Drive configuration finished");
     }
 
-    #[task(local = [commands], shared = [write_buf2], priority = 2)]
-    async fn send_command(mut ctx: send_command::Context) {
-        loop {
-            if let Some(cmd) = ctx.local.commands.pop_front() {
-                defmt::info!("Sending command: {=[u8]:02x}", cmd);
-                for byte in cmd {
-                    ctx.shared
-                        .write_buf2
-                        .lock(|write_buf| write_buf.push_back(byte));
-                }
-                Systick::delay(1000.millis()).await;
-            }
-        }
-    }
-
-    #[task(binds = USART1, local = [tx1, rx1], shared = [read_buf1])]
+    #[task(binds = USART1, local = [serial_gps], shared = [read_buf_gps])]
     fn usart1(mut ctx: usart1::Context) {
-        let rx = ctx.local.rx1;
+        let serial = ctx.local.serial_gps;
 
-        if rx.is_rx_not_empty() {
-            if let Ok(byte) = rx.read() {
+        if serial.is_rx_not_empty() {
+            if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
-                ctx.shared.read_buf1.lock(|read_buf| {
+                ctx.shared.read_buf_gps.lock(|read_buf| {
                     read_buf.push_back(byte);
 
                     if read_buf.len() < 2 {
@@ -305,28 +283,14 @@ mod app {
         }
     }
 
-    #[task(binds = USART2, local = [tx2, rx2], shared = [read_buf2, write_buf2])]
+    #[task(binds = USART2, local = [serial_incl], shared = [read_buf_incl])]
     fn usart2(mut ctx: usart2::Context) {
-        let rx = ctx.local.rx2;
-        let tx = ctx.local.tx2;
+        let serial = ctx.local.serial_incl;
 
-        let mut start_read = false;
-
-        if tx.is_tx_empty() {
-            ctx.shared.write_buf2.lock(|write_buf| {
-                if let Some(byte) = write_buf.pop_front() {
-                    if let Ok(_) = tx.write(byte) {
-                        defmt::debug!("TX Byte value: {:02x}", byte);
-                    }
-                }
-                start_read = write_buf.is_empty();
-            })
-        }
-
-        if rx.is_rx_not_empty() && start_read {
-            if let Ok(byte) = rx.read() {
+        if serial.is_rx_not_empty() {
+            if let Ok(byte) = serial.read() {
                 defmt::debug!("RX Byte value: {:02x}", byte);
-                ctx.shared.read_buf2.lock(|read_buf| {
+                ctx.shared.read_buf_incl.lock(|read_buf| {
                     read_buf.push_back(byte);
 
                     while !read_buf.is_empty() && read_buf[0] != 0x55 {
@@ -344,5 +308,37 @@ mod app {
                 });
             }
         }
+    }
+
+    #[task(binds = USART3, local = [rx_rpi], shared = [read_buf_rpi])]
+    fn usart3(mut ctx: usart3::Context) {
+        let rx = ctx.local.rx_rpi;
+
+        if rx.is_rx_not_empty() {
+            if let Ok(byte) = rx.read() {
+                defmt::debug!("RX Byte value: {:02x}", byte);
+                ctx.shared.read_buf_rpi.lock(|read_buf| {
+                    read_buf.push_back(byte);
+                });
+            }
+        }
+    }
+
+    #[task(local = [tx_rpi], shared = [], priority = 3)]
+    async fn send_regualar_data(ctx: send_regualar_data::Context) {
+        let tx = ctx.local.tx_rpi;
+
+        if tx.is_tx_empty() {
+            let write_buf = String::from("test");
+
+            for byte in write_buf.as_bytes() {
+                if let Ok(_) = tx.write(*byte) {
+                    defmt::debug!("TX Byte value: {:02x}", byte);
+                }
+            }
+        }
+
+        Systick::delay(1.secs()).await;
+        send_regualar_data::spawn().expect("Failed to spawn task send_regualar_data!");
     }
 }
