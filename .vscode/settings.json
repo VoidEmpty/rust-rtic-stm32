@@ -1,0 +1,14 @@
+{
+    "files.exclude": {
+        "**/Cargo.lock": true,
+        "**/target/": true,
+    },
+    "lldb.displayFormat": "auto",
+    "lldb.dereferencePointers": true,
+    "lldb.consoleMode": "commands",
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
+    "rust-analyzer.linkedProjects": [
+        "Cargo.toml",
+    ]
+}

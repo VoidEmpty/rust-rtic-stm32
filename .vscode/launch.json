@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Debug",
+            "chip": "STM32F407VGTx",
+            "coreConfigs": [
+                {
+                    "coreIndex": 0,
+                    "rttEnabled": true,
+                    "programBinary": "${workspaceFolder}\\target\\thumbv7em-none-eabihf\\debug\\inclinometer",
+                }
+            ],
+        }
+    ]
+}

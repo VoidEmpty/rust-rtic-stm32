@@ -1,0 +1,35 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "cargo",
+			"command": "embed",
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"label": "rust: cargo embed",
+			"presentation": {
+				"echo": true,
+				"focus": false,
+				"clear": true,
+				"reveal": "silent",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"revealProblems": "onProblem"
+			}
+		},
+		{
+			"type": "cargo",
+			"command": "test",
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": "test",
+			"label": "rust: cargo test"
+		}
+	]
+}

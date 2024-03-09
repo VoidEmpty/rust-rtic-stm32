@@ -1,0 +1,52 @@
+[package]
+authors = ["EmptyVoid <VoidEmpty@users.noreply.github.com>"]
+edition = "2018"
+readme = "README.md"
+name = "inclinometer"
+version = "0.1.0"
+
+[dependencies]
+# cortex-m crates
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.3"
+cortex-m-rtic = "1.1.4"
+# crates for advanced defmt logging
+defmt = "0.3.5"
+defmt-rtt = "0.4.0"
+heapless = { version = "0.7.16", features = ["defmt"] }
+embedded-alloc = "0.5.0"
+# custom heap allocator for rust collections
+# panic handler to print backtrace via defmt
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+# stm32f407 HAL crate
+systick-monotonic = { version = "1.0" }
+defmt-test = "0.3.0"
+[dependencies.stm32f4xx-hal]
+version = "0.17.1"
+features = ["stm32f407", "rtic", "defmt", "rt"]
+
+[dev-dependencies]
+defmt-test = "0.3.0"
+
+# this lets you use `cargo fix`!
+[[bin]]
+name = "inclinometer"
+test = false
+bench = false
+
+[profile.dev]
+debug = true           # symbols are nice and they don't increase the size on Flash
+opt-level = 0          # no optimisation for better debug experience
+overflow-checks = true # integer overflow checks
+
+[profile.test]
+debug = true
+debug-assertions = true
+overflow-checks = true
+
+[profile.release]
+lto = true              # better LLVM’s link time optimizations
+codegen-units = 1       # compilation time optimizations
+debug = false           # disable debug info
+opt-level = "s"         # smaller binary size
+overflow-checks = false # integer overflow checks
