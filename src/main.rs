@@ -65,8 +65,8 @@ mod app {
     #[local]
     struct Local {
         commands: VecDeque<Vec<u8>>,
-        motor_dir: gpiob::PB6<Output<PushPull>>,
-        motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
+        _motor_dir: gpiob::PB6<Output<PushPull>>,
+        _motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
         drv_en: gpiod::PD11<Output<PushPull>>,
         spi_motor: Spi<SPI3>,
         cs_motor: gpiod::PD0<Output<PushPull>>,
@@ -128,11 +128,11 @@ mod app {
         let drv_en = gpiod.pd11.into_push_pull_output();
         // add pwm for motor
         let channels = Channel2::new(gpiob.pb7);
-        let mut motor_pwm = ctx.device.TIM4.pwm_hz(channels, 2.kHz(), &clocks);
-        motor_pwm.enable(Channel::C2);
+        let mut _motor_pwm = ctx.device.TIM4.pwm_hz(channels, 2.kHz(), &clocks);
+        _motor_pwm.enable(Channel::C2);
 
         // dir for motor
-        let motor_dir = gpiob.pb6.into_push_pull_output();
+        let _motor_dir = gpiob.pb6.into_push_pull_output();
 
         spi_write_drv_registers::spawn().expect("Failed to spawn task spi_write_drv_registers!");
 
@@ -192,8 +192,8 @@ mod app {
                 // Initialization of local resources go here
                 commands,
                 drv_en,
-                motor_pwm,
-                motor_dir,
+                _motor_pwm,
+                _motor_dir,
                 spi_motor,
                 cs_motor,
                 tx1,
