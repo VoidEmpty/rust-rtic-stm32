@@ -20,22 +20,26 @@ extern crate alloc;
 extern crate nmea_protocol;
 extern crate wit_protocol;
 
+mod tmc2160;
+
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
-    use alloc::collections::VecDeque;
     use alloc::vec::Vec;
+    use alloc::{collections::VecDeque, vec};
 
     use rtic_monotonics::systick::Systick;
 
+    use stm32f4xx_hal::pac::SPI3;
     // Use HAL crate for stm32f407
     use stm32f4xx_hal::{
-        gpio::{gpioa, gpiod, Edge, ExtiPin, Input, Output, PushPull},
-        pac::TIM3,
+        gpio::{gpioa, gpiob, gpiod, Edge, ExtiPin, Input, Output, PushPull},
+        pac::TIM4,
         pac::USART1,
         pac::USART2,
         prelude::*,
         serial::{config::Config, Event, Rx, Serial, Tx},
-        timer::{Channel1, Channel2, PwmChannel},
+        spi::*,
+        timer::{Channel, Channel2, ChannelBuilder, PwmHz},
     };
 
     use nmea_protocol::Nmea;
@@ -60,14 +64,22 @@ mod app {
     #[local]
     struct Local {
         commands: VecDeque<Vec<u8>>,
-        button: gpioa::PA0<Input>,
-        led: gpiod::PD13<Output<PushPull>>,
-        motor_dir: gpioa::PA14<Output<PushPull>>,
-        motor_pwm: PwmChannel<TIM3, 0, false>,
+        motor_dir: gpiob::PB6<Output<PushPull>>,
+        motor_pwm: PwmHz<TIM4, ChannelBuilder<TIM4, 1>>,
         tx1: Tx<USART1>,
         rx1: Rx<USART1>,
         tx2: Tx<USART2>,
         rx2: Rx<USART2>,
+    }
+
+    fn spi_send(spi: &mut Spi<SPI3>, mut address: u8, value: u32) {
+        address |= 0x80;
+        let mut buffer = [0; 5];
+        let mut package: Vec<u8> = vec![address];
+        for byte in value.to_le_bytes() {
+            package.push(byte);
+        }
+        let _ = spi.transfer(&mut buffer, &package);
     }
 
     #[init]
@@ -89,30 +101,50 @@ mod app {
         let systick_mono_token = rtic_monotonics::create_systick_token!();
         Systick::start(ctx.core.SYST, 168_000_000, systick_mono_token); // default STM32F407 clock-rate is 16MHz
 
-        // syscfg
-        let mut syscfg = ctx.device.SYSCFG.constrain();
-
         // clocls
         let clocks = rcc.cfgr.freeze();
 
         let gpioa = ctx.device.GPIOA.split();
+        let gpiob = ctx.device.GPIOB.split();
         let gpiod = ctx.device.GPIOD.split();
+        let gpioc = ctx.device.GPIOC.split();
 
-        // create button
-        let mut button = gpioa.pa0.into_pull_up_input();
-        button.make_interrupt_source(&mut syscfg);
-        button.enable_interrupt(&mut ctx.device.EXTI);
-        button.trigger_on_edge(&mut ctx.device.EXTI, Edge::Falling);
+        // SPI configuration (AF6)
+        let sck = gpioc.pc10.into_alternate();
+        let miso = gpioc.pc11.into_alternate();
+        let mosi = gpioc.pc12.into_alternate();
 
-        // add diagnostic led
-        let led = gpiod.pd13.into_push_pull_output();
+        let mut spi3 = Spi::new(
+            ctx.device.SPI3,
+            (sck, miso, mosi),
+            Mode {
+                polarity: Polarity::IdleLow,
+                phase: Phase::CaptureOnFirstTransition,
+            },
+            1.MHz().into(),
+            &clocks,
+        );
+
+        use crate::tmc2160::*;
+
+        spi_send(&mut spi3, registers::CHOPCONF, 0x110140c3);
+        spi_send(&mut spi3, registers::GLOBAL_SCALER, 0);
+        spi_send(&mut spi3, registers::IHOLD_IRUN, 0x000f0909);
+        spi_send(&mut spi3, registers::TPOWERDOWN, 10);
+        spi_send(&mut spi3, registers::TPWMTHRS, 0);
+        spi_send(&mut spi3, registers::PWMCONF, 0xc4000160);
+        spi_send(&mut spi3, registers::GCONF, 0x00000005);
+
+        // add diagnostic leds
+        // let led = gpiod.pd13.into_push_pull_output();
 
         // add pwm for motor
-        let channels = (Channel1::new(gpioa.pa6), Channel2::new(gpioa.pa7));
-        let (mut motor_pwm, _) = ctx.device.TIM3.pwm_hz(channels, 2.kHz(), &clocks).split();
-        motor_pwm.enable();
+        let channels = Channel2::new(gpiob.pb7);
+        let mut motor_pwm = ctx.device.TIM4.pwm_hz(channels, 2.kHz(), &clocks);
+        motor_pwm.enable(Channel::C2);
+
         // dir for motor
-        let motor_dir = gpioa.pa14.into_push_pull_output();
+        let motor_dir = gpiob.pb6.into_push_pull_output();
 
         // create usart serials
         let tx_pin = gpioa.pa9;
@@ -170,10 +202,8 @@ mod app {
             Local {
                 // Initialization of local resources go here
                 commands,
-                button,
                 motor_pwm,
                 motor_dir,
-                led,
                 tx1,
                 rx1,
                 tx2,
@@ -204,12 +234,12 @@ mod app {
         }
     }
 
-    #[task(binds = RTC_WKUP, local = [button, led, motor_dir, motor_pwm])]
-    fn button_pressed(ctx: button_pressed::Context) {
-        ctx.local.button.clear_interrupt_pending_bit();
-        ctx.local.led.toggle();
-        ctx.local.motor_dir.toggle();
-    }
+    // #[task(binds = RTC_WKUP, local = [button, led, motor_dir, motor_pwm])]
+    // fn button_pressed(ctx: button_pressed::Context) {
+    //     ctx.local.button.clear_interrupt_pending_bit();
+    //     ctx.local.led.toggle();
+    //     ctx.local.motor_dir.toggle();
+    // }
 
     #[task(binds = USART1, local = [tx1, rx1], shared = [read_buf1])]
     fn usart1(mut ctx: usart1::Context) {
