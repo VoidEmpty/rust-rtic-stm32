@@ -11,11 +11,14 @@
                     "coreIndex": 0,
                     "rttEnabled": true,
                     "programBinary": "${workspaceFolder}\\target\\thumbv7em-none-eabihf\\debug\\inclinometer",
-                }
+                    "options": {
+                        "env": {
+                            "DEFMT_LOG": "Debug" // Trace, Debug, Info, Warn, Error
+                        }
+                    },
+                },
             ],
-            "env": {
-                "DEFMT_LOG": "debug"
-            }
+            "consoleLogLevel": "Console"
         }
     ]
 }
