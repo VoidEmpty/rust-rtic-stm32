@@ -24,7 +24,7 @@
                 },
             ],
             "consoleLogLevel": "Console",
-            "preLaunchTask": "rust: cargo build",
+            "preLaunchTask": "rust: debug build",
         }
     ]
 }

@@ -106,7 +106,21 @@
 				"$rustc"
 			],
 			"group": "build",
-			"label": "rust: cargo build",
+			"label": "rust: debug build",
+			"options": {
+				"env": {
+					"DEFMT_LOG": "Debug"
+				}
+			},
+			"presentation": {
+				"echo": true,
+				"focus": false,
+				"clear": true,
+				"reveal": "silent",
+				"panel": "dedicated",
+				"showReuseMessage": false,
+				"revealProblems": "never"
+			},
 		}
 	]
 }
