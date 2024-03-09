@@ -31,17 +31,19 @@ pub struct GpsData {
     pub lat_dir: Direction,
     pub longitude: f32,
     pub lon_dir: Direction,
+    pub time: f32,
 }
 
 impl Format for GpsData {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(
             f,
-            "GpsData: latitude: {} {}, longitude: {} {}",
+            "GpsData: latitude: {} {}, longitude: {} {}, time: {}",
             self.latitude,
             self.lat_dir,
             self.longitude,
             self.lon_dir,
+            self.time,
         );
     }
 }
@@ -91,7 +93,7 @@ impl Nmea {
 
     fn parse_nmea_gga(input: &[u8]) -> IResult<&[u8], GpsData> {
         // get time
-        let (input, (_time, _)) = tuple((float, tag(",")))(input)?;
+        let (input, (time, _)) = tuple((float, tag(",")))(input)?;
         // get location
         let (input, (latitude, lat_dir)) = Self::parse_nmea_coord(input)?;
         let (input, (longitude, lon_dir)) = Self::parse_nmea_coord(input)?;
@@ -103,6 +105,7 @@ impl Nmea {
                 lat_dir,
                 longitude,
                 lon_dir,
+                time,
             },
         ))
     }
@@ -112,7 +115,7 @@ impl Nmea {
         let (input, (latitude, lat_dir)) = Self::parse_nmea_coord(input)?;
         let (input, (longitude, lon_dir)) = Self::parse_nmea_coord(input)?;
         // get time
-        let (input, (_time, _)) = tuple((float, tag(",")))(input)?;
+        let (input, (time, _)) = tuple((float, tag(",")))(input)?;
 
         Ok((
             input,
@@ -121,6 +124,7 @@ impl Nmea {
                 lat_dir,
                 longitude,
                 lon_dir,
+                time,
             },
         ))
     }

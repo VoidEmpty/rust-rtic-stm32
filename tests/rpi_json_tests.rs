@@ -56,7 +56,10 @@ mod tests {
             lat_dir: Direction::North,
             longitude: 03740.69200,
             lon_dir: Direction::East,
+            time: 123035.00,
         };
+
+        defmt::info!("GPS data to send: {}", gps_data);
 
         let quat = SQuat {
             q0: 1,
@@ -81,7 +84,7 @@ mod tests {
         assert!(json_string.is_some());
 
         if let Some(s) = json_string {
-            defmt::info!("{}", s.as_str())
+            defmt::info!("JSON string: {}", s.as_str())
         }
     }
 }
