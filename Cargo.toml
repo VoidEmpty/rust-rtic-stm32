@@ -1,5 +1,5 @@
 [package]
-authors = ["EmptyVoid <VoidEmpty@users.noreply.github.com>"]
+authors = ["georgiadis.dy <den.geor@ya.ru>"]
 edition = "2018"
 readme = "README.md"
 name = "inclinometer"
